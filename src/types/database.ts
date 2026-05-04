@@ -24,6 +24,7 @@ export interface Guest {
   menu_choice: string | null
   plus_one: boolean
   plus_one_name: string | null
+  children: string[]
   group_name: string | null
   notes: string | null
   created_at: string

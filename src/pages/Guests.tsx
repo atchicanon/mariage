@@ -31,8 +31,7 @@ const EMPTY_FORM = {
   rsvp_status: 'pending' as RsvpStatus,
   table_number: '',
   menu_choice: 'Pas de restriction',
-  plus_one: false,
-  plus_one_name: '',
+  children: [] as string[],
   group_name: '',
   notes: '',
 }
@@ -102,6 +101,7 @@ export default function Guests() {
   async function saveGuest(e: React.FormEvent) {
     e.preventDefault()
     if (!weddingId) return
+    const children = form.children.map((c) => c.trim()).filter(Boolean)
     const payload = {
       wedding_id: weddingId,
       first_name: form.first_name,
@@ -111,8 +111,9 @@ export default function Guests() {
       rsvp_status: form.rsvp_status,
       table_number: form.table_number ? parseInt(form.table_number) : null,
       menu_choice: form.menu_choice || 'Pas de restriction',
-      plus_one: form.plus_one,
-      plus_one_name: form.plus_one ? form.plus_one_name || null : null,
+      children,
+      plus_one: children.length > 0,
+      plus_one_name: children[0] ?? null,
       group_name: form.group_name || null,
       notes: form.notes || null,
     }
@@ -206,6 +207,7 @@ export default function Guests() {
       group_name: groupName,
       rsvp_status: 'pending',
       menu_choice: 'Pas de restriction',
+      children: [],
       plus_one: false,
       email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
     }).select().single()
@@ -238,8 +240,9 @@ export default function Guests() {
           rsvp_status: RSVP_REVERSE[cols[4]?.trim()] ?? 'pending',
           table_number: cols[5]?.trim() ? parseInt(cols[5]) : null,
           menu_choice: cols[6]?.trim() || 'Pas de restriction',
+          children: cols[7]?.trim() ? cols[7].trim().split('|').map((s) => s.trim()).filter(Boolean) : [],
           plus_one: !!cols[7]?.trim() && cols[7].trim() !== 'Non',
-          plus_one_name: (cols[7]?.trim() && cols[7].trim() !== 'Oui' && cols[7].trim() !== 'Non') ? cols[7].trim() : null,
+          plus_one_name: cols[7]?.trim().split('|')[0]?.trim() || null,
           email: null, notes: null,
         })
       }
@@ -255,6 +258,7 @@ export default function Guests() {
             rsvp_status: 'pending',
             menu_choice: 'Pas de restriction',
             group_name: importGroup || null,
+            children: [],
             plus_one: false,
             email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
           })
@@ -282,8 +286,7 @@ export default function Guests() {
       rsvp_status: guest.rsvp_status,
       table_number: guest.table_number?.toString() ?? '',
       menu_choice: guest.menu_choice ?? 'Pas de restriction',
-      plus_one: guest.plus_one,
-      plus_one_name: guest.plus_one_name ?? '',
+      children: guest.children ?? [],
       group_name: guest.group_name ?? '',
       notes: guest.notes ?? '',
     })
@@ -307,12 +310,12 @@ export default function Guests() {
   }
 
   function exportCsv() {
-    const headers = ['Groupe', 'Nom', 'Prénom', 'Téléphone', 'RSVP', 'Table', 'Restrictions', 'Plus one']
+    const headers = ['Groupe', 'Nom', 'Prénom', 'Téléphone', 'RSVP', 'Table', 'Restrictions', 'Enfants']
     const rows = guests.map((g) => [
       g.group_name ?? '', g.last_name, g.first_name, g.phone ?? '',
       RSVP_LABELS[g.rsvp_status], g.table_number ?? '',
       g.menu_choice ?? 'Pas de restriction',
-      g.plus_one ? g.plus_one_name ?? 'Oui' : 'Non',
+      (g.children ?? []).join('|'),
     ])
     const csv = '\uFEFF' + [headers, ...rows].map((r) => r.join(';')).join('\n')
     const a = document.createElement('a')
@@ -540,8 +543,10 @@ export default function Guests() {
                       <p className="font-medium text-gray-800 hover:text-rose-600 text-sm truncate">
                         {guest.first_name} {guest.last_name}
                       </p>
-                      {guest.plus_one && (
-                        <p className="text-xs text-gray-400">+1{guest.plus_one_name ? ` (${guest.plus_one_name})` : ''}</p>
+                      {(guest.children ?? []).length > 0 && (
+                        <p className="text-xs text-gray-400">
+                          {(guest.children ?? []).join(', ')}
+                        </p>
                       )}
                     </button>
                   </td>
@@ -870,16 +875,45 @@ export default function Guests() {
                   onChange={(e) => setForm({ ...form, menu_choice: e.target.value })}
                 />
               </div>
-              <div className="flex items-center gap-3">
-                <input type="checkbox" id="plus_one" checked={form.plus_one} onChange={(e) => setForm({ ...form, plus_one: e.target.checked })} className="w-4 h-4 accent-rose-500" />
-                <label htmlFor="plus_one" className="text-sm text-gray-700">Accompagné(e)</label>
-              </div>
-              {form.plus_one && (
-                <div>
-                  <label className="label">Nom de l'accompagnant</label>
-                  <input className="input" value={form.plus_one_name} onChange={(e) => setForm({ ...form, plus_one_name: e.target.value })} />
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="label mb-0">Enfants</label>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, children: [...form.children, ''] })}
+                    className="btn-ghost text-xs text-rose-500 gap-1 py-0.5"
+                  >
+                    <Plus className="w-3 h-3" /> Ajouter
+                  </button>
                 </div>
-              )}
+                {form.children.length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Aucun enfant</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {form.children.map((child, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          className="input py-1 text-sm flex-1"
+                          placeholder={`Prénom enfant ${idx + 1}`}
+                          value={child}
+                          onChange={(e) => {
+                            const next = [...form.children]
+                            next[idx] = e.target.value
+                            setForm({ ...form, children: next })
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, children: form.children.filter((_, i) => i !== idx) })}
+                          className="btn-ghost p-1 text-red-400 hover:text-red-600 shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div>
                 <label className="label">Notes</label>
                 <textarea className="input resize-none" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
