@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  Search, Trash2, UserPlus, Download, Upload, Copy,
+  Search, Trash2, UserPlus, Download, Upload,
   ChevronDown, ChevronRight, Users, Pencil, Check, X,
   ArrowUp, ArrowDown, Plus, ArrowRight,
 } from 'lucide-react'
@@ -53,7 +53,6 @@ export default function Guests() {
   const [importError, setImportError] = useState('')
   const [loading, setLoading] = useState(true)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [copiedGroup, setCopiedGroup] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<{ group: string; value: string } | null>(null)
   const [movingGuest, setMovingGuest] = useState<string | null>(null)
   const [quickAddGroup, setQuickAddGroup] = useState<string | null>(null)
@@ -156,10 +155,6 @@ export default function Guests() {
     delete next[oldName]
     saveMeta(next)
     setRenaming(null)
-  }
-
-  function setGroupType(groupName: string, type: GroupType) {
-    saveMeta({ ...groupsMeta, [groupName]: { ...groupsMeta[groupName], type } })
   }
 
   function moveGroupOrder(groupName: string, dir: 'up' | 'down', siblings: string[]) {
@@ -295,12 +290,6 @@ export default function Guests() {
 
   function closeForm() { setShowForm(false); setEditGuest(null); setForm(EMPTY_FORM) }
 
-  function copyGroup(groupName: string, list: Guest[]) {
-    navigator.clipboard.writeText(list.map((g) => `${g.first_name} ${g.last_name}`).join('\n'))
-    setCopiedGroup(groupName)
-    setTimeout(() => setCopiedGroup(null), 2000)
-  }
-
   function toggleGroup(name: string) {
     setCollapsedGroups((prev) => {
       const next = new Set(prev)
@@ -386,7 +375,6 @@ export default function Guests() {
     const realCount = realGuestsInGroup(groupName).length
     const isCollapsed = collapsedGroups.has(groupName)
     const isRenaming = renaming?.group === groupName
-    const type: GroupType = groupsMeta[groupName]?.type ?? 'famille'
     const idx = siblings.indexOf(groupName)
     const confirmedCnt = list.filter((g) => g.rsvp_status === 'confirmed').length
 
@@ -453,17 +441,7 @@ export default function Guests() {
 
           {/* Actions */}
           {!isRenaming && (
-            <div className="flex items-center gap-0.5 ml-auto shrink-0">
-              {/* Section toggle */}
-              <button
-                onClick={() => setGroupType(groupName, type === 'famille' ? 'amis' : 'famille')}
-                title={`Déplacer vers ${type === 'famille' ? 'Amis' : 'Famille'}`}
-                className={`badge text-xs cursor-pointer hover:opacity-80 ${
-                  type === 'famille' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'
-                }`}
-              >
-                {type === 'famille' ? '👨‍👩‍👧' : '👥'}
-              </button>
+            <div className="flex items-center gap-0.5 ml-1 shrink-0">
               {/* Rename */}
               <button
                 onClick={() => setRenaming({ group: groupName, value: groupName })}
@@ -479,16 +457,6 @@ export default function Guests() {
                 title="Ajouter dans ce groupe"
               >
                 <Plus className="w-3.5 h-3.5" />
-              </button>
-              {/* Copy */}
-              <button
-                onClick={() => copyGroup(groupName, list)}
-                className="btn-ghost p-1 text-gray-400 hover:text-gray-600"
-                title="Copier la liste"
-              >
-                {copiedGroup === groupName
-                  ? <Check className="w-3.5 h-3.5 text-green-500" />
-                  : <Copy className="w-3.5 h-3.5" />}
               </button>
               {/* Delete (only when truly empty) */}
               {realCount === 0 && (
@@ -540,7 +508,7 @@ export default function Guests() {
                   {/* Name */}
                   <td className="px-4 py-2.5 min-w-0">
                     <button className="text-left w-full" onClick={() => openEdit(guest)}>
-                      <p className="font-medium text-gray-800 hover:text-rose-600 text-sm truncate">
+                      <p className="font-medium text-gray-800 hover:text-rose-600 text-xs md:text-sm truncate">
                         {guest.first_name} {guest.last_name}
                       </p>
                       {(guest.children ?? []).length > 0 && (
@@ -555,7 +523,7 @@ export default function Guests() {
                     {guest.phone ?? '—'}
                   </td>
                   {/* RSVP */}
-                  <td className="px-3 py-2.5 whitespace-nowrap">
+                  <td className="px-3 py-2.5">
                     <select
                       value={guest.rsvp_status}
                       onChange={(e) => updateRsvp(guest.id, e.target.value as RsvpStatus)}
@@ -571,7 +539,7 @@ export default function Guests() {
                     {guest.menu_choice ?? 'Pas de restriction'}
                   </td>
                   {/* Move to group */}
-                  <td className="px-2 py-2.5 whitespace-nowrap">
+                  <td className="px-2 py-2.5">
                     {movingGuest === guest.id ? (
                       <select
                         autoFocus
@@ -589,7 +557,7 @@ export default function Guests() {
                       <button
                         onClick={() => setMovingGuest(guest.id)}
                         title="Changer de groupe"
-                        className="opacity-0 group-hover/row:opacity-100 btn-ghost p-1 text-gray-400 hover:text-blue-500"
+                        className="btn-ghost p-1 text-gray-400 hover:text-blue-500"
                       >
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
@@ -599,7 +567,7 @@ export default function Guests() {
                   <td className="px-2 py-2.5">
                     <button
                       onClick={() => deleteGuest(guest.id)}
-                      className="opacity-0 group-hover/row:opacity-100 btn-ghost text-red-400 hover:text-red-600 hover:bg-red-50 p-1"
+                      className="btn-ghost text-red-400 hover:text-red-600 hover:bg-red-50 p-1"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -654,27 +622,27 @@ export default function Guests() {
 
   // ---------- JSX ----------
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6 overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="font-serif text-2xl text-gray-800">Invités</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h2 className="font-serif text-xl md:text-2xl text-gray-800">Invités</h2>
+          <p className="text-xs md:text-sm text-gray-500 mt-0.5">
             {counts.total} invité(s) · {allGroupNames.length} groupe(s)
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button className="btn-secondary text-xs" onClick={resetMenuChoices} title="Mettre tous les menus à Pas de restriction">
+          <button className="btn-secondary text-xs hidden md:inline-flex" onClick={resetMenuChoices} title="Mettre tous les menus à Pas de restriction">
             Tout "Pas de restriction"
           </button>
-          <button className="btn-secondary" onClick={exportCsv}>
-            <Download className="w-4 h-4" /> Export
+          <button className="btn-secondary text-xs md:text-sm" onClick={exportCsv}>
+            <Download className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Export</span>
           </button>
-          <button className="btn-secondary" onClick={() => setShowImport(true)}>
-            <Upload className="w-4 h-4" /> Importer
+          <button className="btn-secondary text-xs md:text-sm" onClick={() => setShowImport(true)}>
+            <Upload className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Importer</span>
           </button>
-          <button className="btn-primary" onClick={() => setShowForm(true)}>
-            <UserPlus className="w-4 h-4" /> Ajouter
+          <button className="btn-primary text-xs md:text-sm" onClick={() => setShowForm(true)}>
+            <UserPlus className="w-3.5 h-3.5 md:w-4 md:h-4" /> Ajouter
           </button>
         </div>
       </div>
@@ -687,8 +655,8 @@ export default function Guests() {
             onClick={() => setFilterRsvp(s)}
             className={`card p-3 text-center transition-all ${filterRsvp === s ? 'border-rose-300 bg-rose-50' : 'hover:border-gray-300'}`}
           >
-            <p className="text-2xl font-bold text-gray-800">{s === 'all' ? counts.total : counts[s]}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{s === 'all' ? 'Total' : RSVP_LABELS[s]}</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-800">{s === 'all' ? counts.total : counts[s]}</p>
+            <p className="text-[10px] md:text-xs text-gray-500 mt-0.5">{s === 'all' ? 'Total' : RSVP_LABELS[s]}</p>
           </button>
         ))}
       </div>
@@ -758,7 +726,7 @@ export default function Guests() {
                           ) : (
                             <button
                               onClick={() => setMovingGuest(guest.id)}
-                              className="opacity-0 group-hover/row:opacity-100 btn-ghost p-1 text-blue-400"
+                              className="btn-ghost p-1 text-blue-400"
                               title="Assigner un groupe"
                             >
                               <ArrowRight className="w-3.5 h-3.5" />
@@ -768,7 +736,7 @@ export default function Guests() {
                         <td className="px-2 py-2.5">
                           <button
                             onClick={() => deleteGuest(guest.id)}
-                            className="opacity-0 group-hover/row:opacity-100 btn-ghost text-red-400 p-1"
+                            className="btn-ghost text-red-400 p-1"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
