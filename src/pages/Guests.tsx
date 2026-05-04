@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  Search, Trash2, UserPlus, Download, Upload,
+  Search, Trash2, UserPlus, Download, Upload, Clock,
   ChevronDown, ChevronRight, Users, Pencil, Check, X,
   ArrowUp, ArrowDown, Plus, ArrowRight,
 } from 'lucide-react'
@@ -17,10 +17,14 @@ const RSVP_LABELS: Record<RsvpStatus, string> = {
   declined: 'Décliné',
 }
 
-const RSVP_STYLES: Record<RsvpStatus, string> = {
-  pending: 'bg-amber-50 text-amber-700',
-  confirmed: 'bg-green-50 text-green-700',
-  declined: 'bg-red-50 text-red-700',
+
+const RSVP_ICON = {
+  pending:   { Icon: Clock, cls: 'text-amber-400 hover:text-amber-600' },
+  confirmed: { Icon: Check, cls: 'text-green-500 hover:text-green-700' },
+  declined:  { Icon: X,     cls: 'text-red-400 hover:text-red-600' },
+}
+const RSVP_CYCLE: Record<RsvpStatus, RsvpStatus> = {
+  pending: 'confirmed', confirmed: 'declined', declined: 'pending',
 }
 
 const EMPTY_FORM = {
@@ -501,79 +505,80 @@ export default function Guests() {
 
         {/* Guests table */}
         {!isCollapsed && list.length > 0 && (
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <tbody className="divide-y divide-gray-50">
-              {list.map((guest) => (
-                <tr key={guest.id} className="hover:bg-gray-50/50 group/row">
-                  {/* Name */}
-                  <td className="px-4 py-2.5 min-w-0">
-                    <button className="text-left w-full" onClick={() => openEdit(guest)}>
-                      <p className="font-medium text-gray-800 hover:text-rose-600 text-xs md:text-sm truncate">
-                        {guest.first_name} {guest.last_name}
-                      </p>
-                      {(guest.children ?? []).length > 0 && (
-                        <p className="text-xs text-gray-400">
-                          {(guest.children ?? []).join(', ')}
+              {list.map((guest) => {
+                const { Icon: RsvpIcon, cls: rsvpCls } = RSVP_ICON[guest.rsvp_status]
+                return (
+                  <tr key={guest.id} className="hover:bg-gray-50/50">
+                    {/* Name — takes all remaining width */}
+                    <td className="px-3 py-2 w-full min-w-0">
+                      <button className="text-left w-full min-w-0" onClick={() => openEdit(guest)}>
+                        <p className="font-medium text-gray-800 hover:text-rose-600 text-xs truncate">
+                          {guest.first_name} {guest.last_name}
                         </p>
-                      )}
-                    </button>
-                  </td>
-                  {/* Phone */}
-                  <td className="px-3 py-2.5 text-xs text-gray-400 hidden lg:table-cell whitespace-nowrap">
-                    {guest.phone ?? '—'}
-                  </td>
-                  {/* RSVP */}
-                  <td className="px-3 py-2.5">
-                    <select
-                      value={guest.rsvp_status}
-                      onChange={(e) => updateRsvp(guest.id, e.target.value as RsvpStatus)}
-                      className={`badge cursor-pointer border-0 text-xs ${RSVP_STYLES[guest.rsvp_status]}`}
-                    >
-                      {(Object.keys(RSVP_LABELS) as RsvpStatus[]).map((s) => (
-                        <option key={s} value={s}>{RSVP_LABELS[s]}</option>
-                      ))}
-                    </select>
-                  </td>
-                  {/* Restrictions */}
-                  <td className="px-3 py-2.5 text-xs text-gray-400 hidden md:table-cell">
-                    {guest.menu_choice ?? 'Pas de restriction'}
-                  </td>
-                  {/* Move to group */}
-                  <td className="px-2 py-2.5">
-                    {movingGuest === guest.id ? (
-                      <select
-                        autoFocus
-                        className="input py-0.5 text-xs"
-                        defaultValue={guest.group_name ?? ''}
-                        onChange={(e) => moveGuest(guest.id, e.target.value)}
-                        onBlur={() => setMovingGuest(null)}
-                      >
-                        <option value="">— Sans groupe —</option>
-                        {allGroups.map((g) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <button
-                        onClick={() => setMovingGuest(guest.id)}
-                        title="Changer de groupe"
-                        className="btn-ghost p-1 text-gray-400 hover:text-blue-500"
-                      >
-                        <ArrowRight className="w-3.5 h-3.5" />
+                        {(guest.children ?? []).length > 0 && (
+                          <p className="text-[10px] text-gray-400 truncate">
+                            {(guest.children ?? []).join(', ')}
+                          </p>
+                        )}
                       </button>
-                    )}
-                  </td>
-                  {/* Delete */}
-                  <td className="px-2 py-2.5">
-                    <button
-                      onClick={() => deleteGuest(guest.id)}
-                      className="btn-ghost text-red-400 hover:text-red-600 hover:bg-red-50 p-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    {/* Phone — desktop only */}
+                    <td className="py-2 text-xs text-gray-400 hidden lg:table-cell w-28 truncate">
+                      {guest.phone ?? '—'}
+                    </td>
+                    {/* Restrictions — desktop only */}
+                    <td className="py-2 text-xs text-gray-400 hidden md:table-cell w-32 truncate">
+                      {guest.menu_choice ?? 'Pas de restriction'}
+                    </td>
+                    {/* RSVP icon — cycles on click */}
+                    <td className="py-2 w-8 text-center">
+                      <button
+                        onClick={() => updateRsvp(guest.id, RSVP_CYCLE[guest.rsvp_status])}
+                        title={RSVP_LABELS[guest.rsvp_status]}
+                        className={`btn-ghost p-1 ${rsvpCls}`}
+                      >
+                        <RsvpIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                    {/* Move to group */}
+                    <td className="py-2 w-8 text-center">
+                      {movingGuest === guest.id ? (
+                        <select
+                          autoFocus
+                          className="input py-0.5 text-xs absolute z-10"
+                          defaultValue={guest.group_name ?? ''}
+                          onChange={(e) => moveGuest(guest.id, e.target.value)}
+                          onBlur={() => setMovingGuest(null)}
+                        >
+                          <option value="">— Sans groupe —</option>
+                          {allGroups.map((g) => (
+                            <option key={g} value={g}>{g}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button
+                          onClick={() => setMovingGuest(guest.id)}
+                          title="Changer de groupe"
+                          className="btn-ghost p-1 text-gray-400 hover:text-blue-500"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
+                    {/* Delete */}
+                    <td className="py-2 pr-2 w-8 text-center">
+                      <button
+                        onClick={() => deleteGuest(guest.id)}
+                        className="btn-ghost p-1 text-red-400 hover:text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -689,60 +694,61 @@ export default function Guests() {
             <div>
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Sans groupe</h3>
               <div className="card overflow-hidden">
-                <table className="w-full">
+                <table className="w-full table-fixed">
                   <tbody className="divide-y divide-gray-50">
-                    {ungrouped.map((guest) => (
-                      <tr key={guest.id} className="hover:bg-gray-50/50 group/row">
-                        <td className="px-4 py-2.5">
-                          <button className="text-left" onClick={() => openEdit(guest)}>
-                            <p className="font-medium text-gray-800 text-sm">
-                              {guest.first_name} {guest.last_name}
-                            </p>
-                          </button>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <select
-                            value={guest.rsvp_status}
-                            onChange={(e) => updateRsvp(guest.id, e.target.value as RsvpStatus)}
-                            className={`badge cursor-pointer border-0 text-xs ${RSVP_STYLES[guest.rsvp_status]}`}
-                          >
-                            {(Object.keys(RSVP_LABELS) as RsvpStatus[]).map((s) => (
-                              <option key={s} value={s}>{RSVP_LABELS[s]}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-2.5">
-                          {movingGuest === guest.id ? (
-                            <select
-                              autoFocus
-                              className="input py-0.5 text-xs"
-                              defaultValue=""
-                              onChange={(e) => moveGuest(guest.id, e.target.value)}
-                              onBlur={() => setMovingGuest(null)}
-                            >
-                              <option value="">— Sans groupe —</option>
-                              {allGroups.map((g) => <option key={g} value={g}>{g}</option>)}
-                            </select>
-                          ) : (
-                            <button
-                              onClick={() => setMovingGuest(guest.id)}
-                              className="btn-ghost p-1 text-blue-400"
-                              title="Assigner un groupe"
-                            >
-                              <ArrowRight className="w-3.5 h-3.5" />
+                    {ungrouped.map((guest) => {
+                      const { Icon: RsvpIcon, cls: rsvpCls } = RSVP_ICON[guest.rsvp_status]
+                      return (
+                        <tr key={guest.id} className="hover:bg-gray-50/50">
+                          <td className="px-3 py-2 w-full min-w-0">
+                            <button className="text-left w-full min-w-0" onClick={() => openEdit(guest)}>
+                              <p className="font-medium text-gray-800 text-xs truncate">
+                                {guest.first_name} {guest.last_name}
+                              </p>
                             </button>
-                          )}
-                        </td>
-                        <td className="px-2 py-2.5">
-                          <button
-                            onClick={() => deleteGuest(guest.id)}
-                            className="btn-ghost text-red-400 p-1"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-2 w-8 text-center">
+                            <button
+                              onClick={() => updateRsvp(guest.id, RSVP_CYCLE[guest.rsvp_status])}
+                              title={RSVP_LABELS[guest.rsvp_status]}
+                              className={`btn-ghost p-1 ${rsvpCls}`}
+                            >
+                              <RsvpIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                          <td className="py-2 w-8 text-center">
+                            {movingGuest === guest.id ? (
+                              <select
+                                autoFocus
+                                className="input py-0.5 text-xs absolute z-10"
+                                defaultValue=""
+                                onChange={(e) => moveGuest(guest.id, e.target.value)}
+                                onBlur={() => setMovingGuest(null)}
+                              >
+                                <option value="">— Sans groupe —</option>
+                                {allGroups.map((g) => <option key={g} value={g}>{g}</option>)}
+                              </select>
+                            ) : (
+                              <button
+                                onClick={() => setMovingGuest(guest.id)}
+                                className="btn-ghost p-1 text-gray-400 hover:text-blue-500"
+                                title="Assigner un groupe"
+                              >
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 w-8 text-center">
+                            <button
+                              onClick={() => deleteGuest(guest.id)}
+                              className="btn-ghost p-1 text-red-400 hover:text-red-600"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
