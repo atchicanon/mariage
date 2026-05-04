@@ -764,7 +764,6 @@ export default function Guests() {
             <div>
               <label className="label">Nom du groupe</label>
               <input
-                autoFocus
                 className="input"
                 value={groupEditModal.newName}
                 onChange={(e) => setGroupEditModal({ ...groupEditModal, newName: e.target.value })}
@@ -843,7 +842,6 @@ export default function Guests() {
               <div>
                 <label className="label">Nom du groupe</label>
                 <input
-                  autoFocus
                   className="input"
                   placeholder={newGroupType === 'famille' ? 'ex : Famille Martin' : 'ex : Amis du lycée'}
                   value={newGroupName}
