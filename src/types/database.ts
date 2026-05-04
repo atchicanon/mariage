@@ -6,7 +6,9 @@ export interface Wedding {
   name: string
   date: string | null
   location: string
+  address: string | null
   type: WeddingType
+  total_budget: number
   created_at: string
 }
 
@@ -22,6 +24,7 @@ export interface Guest {
   menu_choice: string | null
   plus_one: boolean
   plus_one_name: string | null
+  group_name: string | null
   notes: string | null
   created_at: string
 }

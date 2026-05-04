@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Users, DollarSign, CheckSquare, Briefcase, TrendingUp } from 'lucide-react'
+import { Users, DollarSign, CheckSquare, Briefcase, TrendingUp, Pencil, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useWeddingStore } from '../store/weddingStore'
 import { format, differenceInDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import type { WeddingType } from '../types/database'
 
 interface Stats {
   totalGuests: number
@@ -20,8 +21,17 @@ interface Stats {
 
 export default function WeddingOverview() {
   const { weddingId } = useParams<{ weddingId: string }>()
-  const { weddings, setActiveWedding } = useWeddingStore()
+  const { weddings, setActiveWedding, updateWedding } = useWeddingStore()
   const [stats, setStats] = useState<Stats | null>(null)
+  const [showEdit, setShowEdit] = useState(false)
+  const [editForm, setEditForm] = useState({
+    name: '',
+    date: '',
+    location: '',
+    address: '',
+    total_budget: '',
+    type: 'civil' as WeddingType,
+  })
 
   const wedding = weddings.find((w) => w.id === weddingId)
 
@@ -60,10 +70,45 @@ export default function WeddingOverview() {
     })
   }
 
+  function openEdit() {
+    if (!wedding) return
+    setEditForm({
+      name: wedding.name,
+      date: wedding.date ?? '',
+      location: wedding.location,
+      address: wedding.address ?? '',
+      total_budget: wedding.total_budget?.toString() ?? '0',
+      type: wedding.type,
+    })
+    setShowEdit(true)
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!weddingId || !wedding) return
+    const payload = {
+      name: editForm.name,
+      date: editForm.date || null,
+      location: editForm.location,
+      address: editForm.address || null,
+      total_budget: parseFloat(editForm.total_budget) || 0,
+      type: editForm.type,
+    }
+    const { data } = await supabase.from('weddings').update(payload).eq('id', weddingId).select().single()
+    if (data) {
+      updateWedding(data)
+      setShowEdit(false)
+    }
+  }
+
   if (!wedding) return null
 
   const daysLeft = wedding.date
     ? differenceInDays(new Date(wedding.date), new Date())
+    : null
+
+  const mapsUrl = wedding.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(wedding.address)}`
     : null
 
   const cards = stats
@@ -128,6 +173,38 @@ export default function WeddingOverview() {
         </div>
       )}
 
+      {/* Wedding info + edit */}
+      <div className="card p-5 flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h3 className="font-serif text-xl text-gray-800">{wedding.name}</h3>
+          {wedding.date && (
+            <p className="text-sm text-gray-500">
+              {format(new Date(wedding.date), 'dd MMMM yyyy', { locale: fr })}
+            </p>
+          )}
+          <p className="text-sm text-gray-500">{wedding.location}</p>
+          {mapsUrl && (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline mt-0.5"
+            >
+              <MapPin className="w-3 h-3" />
+              {wedding.address}
+            </a>
+          )}
+          {wedding.total_budget > 0 && (
+            <p className="text-sm text-gray-500 mt-1">
+              Budget global : <span className="font-medium text-gray-700">{wedding.total_budget.toLocaleString('fr-FR')} €</span>
+            </p>
+          )}
+        </div>
+        <button onClick={openEdit} className="btn-ghost p-2 shrink-0">
+          <Pencil className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* Stats grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {cards.map(({ label, value, sub, icon: Icon, color, bg, to }) => (
@@ -148,6 +225,80 @@ export default function WeddingOverview() {
           </Link>
         ))}
       </div>
+
+      {/* Edit modal */}
+      {showEdit && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="card w-full max-w-md p-6">
+            <h2 className="font-serif text-xl mb-5">Modifier le mariage</h2>
+            <form onSubmit={saveEdit} className="space-y-4">
+              <div>
+                <label className="label">Nom</label>
+                <input
+                  className="input"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="label">Type</label>
+                <select
+                  className="input"
+                  value={editForm.type}
+                  onChange={(e) => setEditForm({ ...editForm, type: e.target.value as WeddingType })}
+                >
+                  <option value="civil">Civil</option>
+                  <option value="religious">Religieux</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Date</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Lieu</label>
+                <input
+                  className="input"
+                  placeholder="ex : Bordeaux, La Réunion..."
+                  value={editForm.location}
+                  onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Adresse (lien Google Maps)</label>
+                <input
+                  className="input"
+                  placeholder="ex : 12 rue de la Paix, 33000 Bordeaux"
+                  value={editForm.address}
+                  onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Budget global (€)</label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="0"
+                  value={editForm.total_budget}
+                  onChange={(e) => setEditForm({ ...editForm, total_budget: e.target.value })}
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="btn-primary flex-1">Enregistrer</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowEdit(false)}>
+                  Annuler
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

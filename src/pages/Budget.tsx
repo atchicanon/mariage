@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Plus, Trash2, Check, DollarSign } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useWeddingStore } from '../store/weddingStore'
 import type { BudgetCategory, BudgetItem } from '../types/database'
 
 const CATEGORY_COLORS = [
@@ -15,6 +16,9 @@ interface ItemWithCategory extends BudgetItem {
 
 export default function Budget() {
   const { weddingId } = useParams<{ weddingId: string }>()
+  const { weddings } = useWeddingStore()
+  const wedding = weddings.find((w) => w.id === weddingId)
+  const globalBudget = wedding?.total_budget ?? 0
   const [categories, setCategories] = useState<BudgetCategory[]>([])
   const [items, setItems] = useState<ItemWithCategory[]>([])
   const [showCatForm, setShowCatForm] = useState(false)
@@ -148,6 +152,20 @@ export default function Budget() {
 
       {/* Summary */}
       <div className="card p-6">
+        {globalBudget > 0 && (
+          <div className="mb-4 pb-4 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-500 mb-0.5">Enveloppe globale</p>
+              <p className="text-xl font-bold text-gray-700">{globalBudget.toLocaleString('fr-FR')} €</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-500 mb-0.5">Reste à allouer</p>
+              <p className={`text-xl font-bold ${globalBudget - totalEstimated < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                {(globalBudget - totalEstimated).toLocaleString('fr-FR')} €
+              </p>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-6 mb-4">
           <div>
             <p className="text-xs text-gray-500 mb-1">Budget prévu</p>
@@ -177,7 +195,7 @@ export default function Budget() {
             }}
           />
         </div>
-        <p className="text-xs text-gray-400 mt-1">{pct.toFixed(0)}% du budget utilisé</p>
+        <p className="text-xs text-gray-400 mt-1">{pct.toFixed(0)}% du budget prévu dépensé</p>
       </div>
 
       {/* Items by category */}
