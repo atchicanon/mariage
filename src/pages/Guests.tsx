@@ -61,6 +61,7 @@ export default function Guests() {
   const [quickAddForm, setQuickAddForm] = useState({ first_name: '', last_name: '' })
   const [newGroupType, setNewGroupType] = useState<GroupType | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
+  const [importCsvRows, setImportCsvRows] = useState<string[][] | null>(null)
 
   // ---------- localStorage helpers ----------
   const loadMeta = useCallback((): Record<string, GroupMeta> => {
@@ -181,6 +182,12 @@ export default function Guests() {
     setNewGroupName('')
   }
 
+  function deleteGroup(groupName: string) {
+    const next = { ...groupsMeta }
+    delete next[groupName]
+    saveMeta(next)
+  }
+
   // ---------- Guest moves ----------
   async function moveGuest(guestId: string, newGroup: string) {
     const group_name = newGroup || null
@@ -214,28 +221,53 @@ export default function Guests() {
     if (!weddingId) return
     const toInsert: object[] = []
     const errors: string[] = []
-    for (const line of importText.split('\n').map((l) => l.trim()).filter(Boolean)) {
-      for (const person of line.split(',').map((p) => p.trim()).filter(Boolean)) {
-        const parts = person.split(/\s+/)
-        if (parts.length < 2) { errors.push(`Format invalide : "${person}"`); continue }
+
+    if (importCsvRows) {
+      // CSV export format: Groupe;Nom;Prénom;Téléphone;RSVP;Table;Restrictions;Plus one
+      const RSVP_REVERSE: Record<string, string> = { 'Confirmé': 'confirmed', 'Décliné': 'declined', 'En attente': 'pending' }
+      for (const cols of importCsvRows) {
+        const last_name = cols[1]?.trim()
+        const first_name = cols[2]?.trim()
+        if (!last_name || !first_name) continue
         toInsert.push({
           wedding_id: weddingId,
-          first_name: parts[0],
-          last_name: parts.slice(1).join(' '),
-          rsvp_status: 'pending',
-          menu_choice: 'Pas de restriction',
-          group_name: importGroup || null,
-          plus_one: false,
-          email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
+          group_name: cols[0]?.trim() || null,
+          last_name,
+          first_name,
+          phone: cols[3]?.trim() || null,
+          rsvp_status: RSVP_REVERSE[cols[4]?.trim()] ?? 'pending',
+          table_number: cols[5]?.trim() ? parseInt(cols[5]) : null,
+          menu_choice: cols[6]?.trim() || 'Pas de restriction',
+          plus_one: !!cols[7]?.trim() && cols[7].trim() !== 'Non',
+          plus_one_name: (cols[7]?.trim() && cols[7].trim() !== 'Oui' && cols[7].trim() !== 'Non') ? cols[7].trim() : null,
+          email: null, notes: null,
         })
       }
+    } else {
+      for (const line of importText.split('\n').map((l) => l.trim()).filter(Boolean)) {
+        for (const person of line.split(',').map((p) => p.trim()).filter(Boolean)) {
+          const parts = person.split(/\s+/)
+          if (parts.length < 2) { errors.push(`Format invalide : "${person}"`); continue }
+          toInsert.push({
+            wedding_id: weddingId,
+            first_name: parts[0],
+            last_name: parts.slice(1).join(' '),
+            rsvp_status: 'pending',
+            menu_choice: 'Pas de restriction',
+            group_name: importGroup || null,
+            plus_one: false,
+            email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
+          })
+        }
+      }
     }
+
     if (errors.length && !toInsert.length) { setImportError(errors.join('\n')); return }
     const { data } = await supabase.from('guests').insert(toInsert).select()
     if (data) {
       setGuests([...guests, ...data])
       setShowImport(false)
-      setImportText(''); setImportGroup(''); setImportError('')
+      setImportText(''); setImportGroup(''); setImportError(''); setImportCsvRows(null)
     }
   }
 
@@ -282,10 +314,32 @@ export default function Guests() {
       g.menu_choice ?? 'Pas de restriction',
       g.plus_one ? g.plus_one_name ?? 'Oui' : 'Non',
     ])
-    const csv = [headers, ...rows].map((r) => r.join(';')).join('\n')
+    const csv = '\uFEFF' + [headers, ...rows].map((r) => r.join(';')).join('\n')
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     a.download = 'invites.csv'; a.click()
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = (ev.target?.result as string ?? '').replace(/^\uFEFF/, '')
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+      if (!lines.length) return
+      // Detect export format: header starts with "Groupe;Nom;Prénom"
+      const isExportFormat = lines[0].startsWith('Groupe;Nom;') || lines[0].startsWith('Groupe;')
+      if (isExportFormat) {
+        setImportCsvRows(lines.slice(1).map((l) => l.split(';')))
+        setImportText('')
+      } else {
+        setImportText(text)
+        setImportCsvRows(null)
+      }
+    }
+    reader.readAsText(file, 'utf-8')
+    e.target.value = ''
   }
 
   // ---------- Computed ----------
@@ -312,7 +366,9 @@ export default function Guests() {
   })
 
   const guestsInGroup = (name: string) => filtered.filter((g) => g.group_name === name)
-  const allGroups = [...new Set(guests.map((g) => g.group_name).filter(Boolean))] as string[]
+  const realGuestsInGroup = (name: string) => guests.filter((g) => g.group_name === name)
+  // All known groups (includes empty ones from meta) for move-to dropdowns
+  const allGroups = sortedByPosition
 
   const counts = {
     total: guests.length,
@@ -324,6 +380,7 @@ export default function Guests() {
   // ---------- Group block renderer ----------
   function GroupBlock({ groupName, siblings }: { groupName: string; siblings: string[] }) {
     const list = guestsInGroup(groupName)
+    const realCount = realGuestsInGroup(groupName).length
     const isCollapsed = collapsedGroups.has(groupName)
     const isRenaming = renaming?.group === groupName
     const type: GroupType = groupsMeta[groupName]?.type ?? 'famille'
@@ -430,6 +487,16 @@ export default function Guests() {
                   ? <Check className="w-3.5 h-3.5 text-green-500" />
                   : <Copy className="w-3.5 h-3.5" />}
               </button>
+              {/* Delete (only when truly empty) */}
+              {realCount === 0 && (
+                <button
+                  onClick={() => deleteGroup(groupName)}
+                  className="btn-ghost p-1 text-red-300 hover:text-red-500"
+                  title="Supprimer le groupe vide"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -832,43 +899,63 @@ export default function Guests() {
           <div className="card w-full max-w-lg p-6">
             <h2 className="font-serif text-xl mb-2">Importer des invités</h2>
             <p className="text-sm text-gray-500 mb-4">
-              Colle ta liste — un invité par ligne ou séparés par virgule.<br />
-              Format : <code className="bg-gray-100 px-1 rounded">Prénom Nom</code>
+              Importe un CSV exporté depuis l'appli, ou colle une liste texte.
             </p>
             <form onSubmit={importGuests} className="space-y-4">
+              {/* File upload */}
               <div>
-                <label className="label">Groupe / Famille (optionnel)</label>
-                <input
-                  className="input"
-                  placeholder="ex : Famille Atchicanon"
-                  value={importGroup}
-                  onChange={(e) => setImportGroup(e.target.value)}
-                  list="groups-import-datalist"
-                />
-                <datalist id="groups-import-datalist">
-                  {allGroups.map((g) => <option key={g} value={g} />)}
-                </datalist>
+                <label className="label">Fichier CSV (UTF-8)</label>
+                <label className="flex items-center gap-2 cursor-pointer border border-dashed border-gray-300 rounded-lg px-4 py-3 hover:border-rose-300 hover:bg-rose-50/50 transition-colors">
+                  <Upload className="w-4 h-4 text-gray-400 shrink-0" />
+                  <span className="text-sm text-gray-500">
+                    {importCsvRows
+                      ? <span className="text-green-600 font-medium">{importCsvRows.length} lignes chargées depuis le fichier</span>
+                      : 'Choisir un fichier CSV…'}
+                  </span>
+                  <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleImportFile} />
+                </label>
               </div>
-              <div>
-                <label className="label">Liste d'invités *</label>
-                <textarea
-                  className="input resize-none font-mono text-sm"
-                  rows={8}
-                  placeholder="Jean-Yves Atchicanon&#10;Guylene Atchicanon&#10;Monique Atchicanon, Laure Atchicanon"
-                  value={importText}
-                  onChange={(e) => setImportText(e.target.value)}
-                  required
-                />
-              </div>
+
+              {!importCsvRows && (
+                <>
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <div className="flex-1 border-t" /> ou coller une liste texte <div className="flex-1 border-t" />
+                  </div>
+                  <div>
+                    <label className="label">Groupe / Famille (optionnel)</label>
+                    <input
+                      className="input"
+                      placeholder="ex : Famille Atchicanon"
+                      value={importGroup}
+                      onChange={(e) => setImportGroup(e.target.value)}
+                      list="groups-import-datalist"
+                    />
+                    <datalist id="groups-import-datalist">
+                      {allGroups.map((g) => <option key={g} value={g} />)}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="label">Liste d'invités</label>
+                    <textarea
+                      className="input resize-none font-mono text-sm"
+                      rows={6}
+                      placeholder="Jean-Yves Atchicanon&#10;Guylene Atchicanon&#10;Monique Atchicanon, Laure Atchicanon"
+                      value={importText}
+                      onChange={(e) => setImportText(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
               {importError && (
                 <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{importError}</p>
               )}
               <div className="flex gap-3">
-                <button type="submit" className="btn-primary flex-1">
+                <button type="submit" className="btn-primary flex-1" disabled={!importCsvRows && !importText.trim()}>
                   <Upload className="w-4 h-4" /> Importer
                 </button>
                 <button type="button" className="btn-secondary" onClick={() => {
-                  setShowImport(false); setImportText(''); setImportGroup(''); setImportError('')
+                  setShowImport(false); setImportText(''); setImportGroup(''); setImportError(''); setImportCsvRows(null)
                 }}>
                   Annuler
                 </button>
