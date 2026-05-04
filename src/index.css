@@ -6,6 +6,13 @@
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
   }
+
+  /* Prevent iOS Safari from zooming on input focus (requires font-size >= 16px) */
+  @supports (-webkit-touch-callout: none) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+  }
 }
 
 @layer components {
