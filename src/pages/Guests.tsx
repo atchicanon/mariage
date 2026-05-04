@@ -3,10 +3,11 @@ import { useParams } from 'react-router-dom'
 import {
   Search, Trash2, UserPlus, Download, Upload, Clock,
   ChevronDown, ChevronRight, Users, Pencil, Check, X,
-  ArrowUp, ArrowDown, Plus, ArrowRight,
+  ArrowUp, ArrowDown, Plus, ArrowRight, LayoutGrid,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Guest, RsvpStatus } from '../types/database'
+import TablePlan from './TablePlan'
 
 type GroupType = 'famille' | 'amis'
 interface GroupMeta { type: GroupType; position: number }
@@ -44,6 +45,7 @@ export default function Guests() {
   const { weddingId } = useParams<{ weddingId: string }>()
   const localKey = `mariage_groups_${weddingId}`
 
+  const [activeTab, setActiveTab] = useState<'guests' | 'tables'>('guests')
   const [guests, setGuests] = useState<Guest[]>([])
   const [groupsMeta, setGroupsMeta] = useState<Record<string, GroupMeta>>({})
   const [search, setSearch] = useState('')
@@ -633,22 +635,62 @@ export default function Guests() {
             {counts.total} invité(s) · {allGroupNames.length} groupe(s)
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <button className="btn-secondary text-xs hidden md:inline-flex" onClick={resetMenuChoices} title="Mettre tous les menus à Pas de restriction">
-            Tout "Pas de restriction"
-          </button>
-          <button className="btn-secondary text-xs md:text-sm" onClick={exportCsv}>
-            <Download className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Export</span>
-          </button>
-          <button className="btn-secondary text-xs md:text-sm" onClick={() => setShowImport(true)}>
-            <Upload className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Importer</span>
-          </button>
-          <button className="btn-primary text-xs md:text-sm" onClick={() => setShowForm(true)}>
-            <UserPlus className="w-3.5 h-3.5 md:w-4 md:h-4" /> Ajouter
-          </button>
-        </div>
+        {activeTab === 'guests' && (
+          <div className="flex gap-2 flex-wrap">
+            <button className="btn-secondary text-xs hidden md:inline-flex" onClick={resetMenuChoices} title="Mettre tous les menus à Pas de restriction">
+              Tout "Pas de restriction"
+            </button>
+            <button className="btn-secondary text-xs md:text-sm" onClick={exportCsv}>
+              <Download className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Export</span>
+            </button>
+            <button className="btn-secondary text-xs md:text-sm" onClick={() => setShowImport(true)}>
+              <Upload className="w-3.5 h-3.5 md:w-4 md:h-4" /> <span className="hidden sm:inline">Importer</span>
+            </button>
+            <button className="btn-primary text-xs md:text-sm" onClick={() => setShowForm(true)}>
+              <UserPlus className="w-3.5 h-3.5 md:w-4 md:h-4" /> Ajouter
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Onglets */}
+      <div className="flex border-b border-gray-200 -mb-2">
+        <button
+          onClick={() => setActiveTab('guests')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'guests'
+              ? 'border-rose-500 text-rose-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Liste des invités
+        </button>
+        <button
+          onClick={() => setActiveTab('tables')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'tables'
+              ? 'border-rose-500 text-rose-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <LayoutGrid className="w-4 h-4" />
+          Plan de table
+        </button>
+      </div>
+
+      {/* Onglet Plan de table */}
+      {activeTab === 'tables' && weddingId && (
+        <TablePlan
+          weddingId={weddingId}
+          guests={guests}
+          onGuestsChange={setGuests}
+        />
+      )}
+
+      {/* Onglet Liste des invités */}
+      {activeTab === 'guests' && (
+        <>
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">
         {(['all', 'confirmed', 'pending', 'declined'] as const).map((s) => (
@@ -1044,6 +1086,8 @@ export default function Guests() {
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )
