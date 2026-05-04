@@ -13,11 +13,23 @@ import {
   X,
 } from 'lucide-react'
 import { useWeddingStore } from '../store/weddingStore'
+import { supabase } from '../lib/supabase'
 
 export default function Layout() {
   const { weddingId } = useParams<{ weddingId: string }>()
-  const { weddings, setActiveWedding } = useWeddingStore()
+  const { weddings, setWeddings, setActiveWedding, setLoading } = useWeddingStore()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    supabase
+      .from('weddings')
+      .select('*')
+      .order('date')
+      .then(({ data }) => {
+        if (data) setWeddings(data)
+        setLoading(false)
+      })
+  }, [])
 
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('sidebar_collapsed') === 'true' }

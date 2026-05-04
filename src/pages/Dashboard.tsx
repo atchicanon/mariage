@@ -3,15 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Heart, MapPin, Calendar, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useWeddingStore } from '../store/weddingStore'
-import type { Wedding, WeddingType } from '../types/database'
+import type { WeddingType } from '../types/database'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { weddings, setWeddings, setActiveWedding } = useWeddingStore()
+  const { weddings, isLoading, addWedding, setActiveWedding } = useWeddingStore()
   const [showForm, setShowForm] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [guestCounts, setGuestCounts] = useState<Record<string, number>>({})
 
   const [form, setForm] = useState({
@@ -22,45 +21,31 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
-    fetchWeddings()
-  }, [])
-
-  async function fetchWeddings() {
-    setLoading(true)
-    const { data } = await supabase.from('weddings').select('*').order('date')
-    if (data) {
-      setWeddings(data)
-      await fetchGuestCounts(data)
-    }
-    setLoading(false)
-  }
-
-  async function fetchGuestCounts(ws: Wedding[]) {
-    const counts: Record<string, number> = {}
-    await Promise.all(
-      ws.map(async (w) => {
+    if (weddings.length === 0) return
+    Promise.all(
+      weddings.map(async (w) => {
         const { count } = await supabase
           .from('guests')
           .select('*', { count: 'exact', head: true })
           .eq('wedding_id', w.id)
-        counts[w.id] = count ?? 0
+        return [w.id, count ?? 0] as const
       }),
-    )
-    setGuestCounts(counts)
-  }
+    ).then((entries) => setGuestCounts(Object.fromEntries(entries)))
+  }, [weddings])
 
   async function createWedding(e: React.FormEvent) {
     e.preventDefault()
     const { data } = await supabase.from('weddings').insert(form).select().single()
     if (data) {
-      setWeddings([...weddings, data])
+      addWedding(data)
       setShowForm(false)
       setForm({ name: '', date: '', location: '', type: 'civil' })
+      setActiveWedding(data.id)
       navigate(`/mariage/${data.id}`)
     }
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Heart className="w-8 h-8 text-rose-400 animate-pulse fill-rose-400" />
