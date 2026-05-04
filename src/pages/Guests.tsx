@@ -57,7 +57,7 @@ export default function Guests() {
   const [importError, setImportError] = useState('')
   const [loading, setLoading] = useState(true)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [renaming, setRenaming] = useState<{ group: string; value: string } | null>(null)
+  const [groupEditModal, setGroupEditModal] = useState<{ name: string; newName: string; type: GroupType } | null>(null)
   const [movingGuest, setMovingGuest] = useState<string | null>(null)
   const [quickAddGroup, setQuickAddGroup] = useState<string | null>(null)
   const [quickAddForm, setQuickAddForm] = useState({ first_name: '', last_name: '' })
@@ -147,18 +147,38 @@ export default function Guests() {
   }
 
   // ---------- Group management ----------
-  async function renameGroup(oldName: string, newName: string) {
+  async function saveGroupEdit() {
+    if (!groupEditModal || !weddingId) return
+    const { name, newName, type } = groupEditModal
     const trimmed = newName.trim()
-    if (!weddingId || !trimmed || trimmed === oldName) { setRenaming(null); return }
-    await supabase.from('guests')
-      .update({ group_name: trimmed })
-      .eq('wedding_id', weddingId)
-      .eq('group_name', oldName)
-    setGuests(guests.map((g) => g.group_name === oldName ? { ...g, group_name: trimmed } : g))
-    const next = { ...groupsMeta, [trimmed]: groupsMeta[oldName] }
-    delete next[oldName]
+    if (!trimmed) return
+    if (trimmed !== name) {
+      await supabase.from('guests')
+        .update({ group_name: trimmed })
+        .eq('wedding_id', weddingId)
+        .eq('group_name', name)
+      setGuests(guests.map((g) => g.group_name === name ? { ...g, group_name: trimmed } : g))
+    }
+    const next = { ...groupsMeta }
+    const existing = next[name]
+    if (trimmed !== name) {
+      next[trimmed] = { ...existing, type }
+      delete next[name]
+    } else {
+      next[name] = { ...existing, type }
+    }
     saveMeta(next)
-    setRenaming(null)
+    setGroupEditModal(null)
+  }
+
+  async function confirmAllGroup(groupName: string) {
+    if (!weddingId) return
+    await supabase.from('guests')
+      .update({ rsvp_status: 'confirmed' })
+      .eq('wedding_id', weddingId)
+      .eq('group_name', groupName)
+    setGuests(guests.map((g) => g.group_name === groupName ? { ...g, rsvp_status: 'confirmed' } : g))
+    setGroupEditModal(null)
   }
 
   function moveGroupOrder(groupName: string, dir: 'up' | 'down', siblings: string[]) {
@@ -378,7 +398,6 @@ export default function Guests() {
     const list = guestsInGroup(groupName)
     const realCount = realGuestsInGroup(groupName).length
     const isCollapsed = collapsedGroups.has(groupName)
-    const isRenaming = renaming?.group === groupName
     const idx = siblings.indexOf(groupName)
     const confirmedCnt = list.filter((g) => g.rsvp_status === 'confirmed').length
 
@@ -411,69 +430,47 @@ export default function Guests() {
               : <ChevronDown className="w-4 h-4 text-gray-400" />}
           </button>
 
-          {/* Name / rename */}
-          {isRenaming ? (
-            <form
-              className="flex items-center gap-1 flex-1 min-w-0"
-              onSubmit={(e) => { e.preventDefault(); renameGroup(groupName, renaming!.value) }}
-            >
-              <input
-                autoFocus
-                className="input py-0.5 text-sm font-medium flex-1 min-w-0"
-                value={renaming!.value}
-                onChange={(e) => setRenaming({ ...renaming!, value: e.target.value })}
-              />
-              <button type="submit" className="btn-ghost p-1 text-green-600 shrink-0">
-                <Check className="w-3.5 h-3.5" />
-              </button>
-              <button type="button" className="btn-ghost p-1 text-gray-400 shrink-0" onClick={() => setRenaming(null)}>
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </form>
-          ) : (
-            <button
-              className="flex items-center gap-2 flex-1 min-w-0 text-left"
-              onClick={() => toggleGroup(groupName)}
-            >
-              <span className="font-medium text-gray-700 text-sm truncate">{groupName}</span>
-              <span className="badge bg-gray-200 text-gray-600 text-xs shrink-0">{list.length}</span>
-              {confirmedCnt > 0 && (
-                <span className="badge bg-green-100 text-green-700 text-xs shrink-0">{confirmedCnt} ✓</span>
-              )}
-            </button>
-          )}
+          {/* Name + badges */}
+          <button
+            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+            onClick={() => toggleGroup(groupName)}
+          >
+            <span className="font-medium text-gray-700 text-sm truncate">{groupName}</span>
+            <span className="badge bg-gray-200 text-gray-600 text-xs shrink-0">{list.length}</span>
+            {confirmedCnt > 0 && (
+              <span className="badge bg-green-100 text-green-700 text-xs shrink-0">{confirmedCnt} ✓</span>
+            )}
+          </button>
 
           {/* Actions */}
-          {!isRenaming && (
-            <div className="flex items-center gap-0.5 ml-1 shrink-0">
-              {/* Rename */}
+          <div className="flex items-center gap-0.5 ml-1 shrink-0">
+            {/* Edit group modal */}
+            <button
+              onClick={() => setGroupEditModal({ name: groupName, newName: groupName, type: groupsMeta[groupName]?.type ?? 'famille' })}
+              className="btn-ghost p-1 text-gray-400 hover:text-gray-600"
+              title="Modifier le groupe"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            {/* Quick add */}
+            <button
+              onClick={() => setQuickAddGroup(quickAddGroup === groupName ? null : groupName)}
+              className="btn-ghost p-1 text-gray-400 hover:text-rose-500"
+              title="Ajouter dans ce groupe"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            {/* Delete (only when truly empty) */}
+            {realCount === 0 && (
               <button
-                onClick={() => setRenaming({ group: groupName, value: groupName })}
-                className="btn-ghost p-1 text-gray-400 hover:text-gray-600"
-                title="Renommer"
+                onClick={() => deleteGroup(groupName)}
+                className="btn-ghost p-1 text-red-300 hover:text-red-500"
+                title="Supprimer le groupe vide"
               >
-                <Pencil className="w-3 h-3" />
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
-              {/* Quick add */}
-              <button
-                onClick={() => setQuickAddGroup(quickAddGroup === groupName ? null : groupName)}
-                className="btn-ghost p-1 text-gray-400 hover:text-rose-500"
-                title="Ajouter dans ce groupe"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-              {/* Delete (only when truly empty) */}
-              {realCount === 0 && (
-                <button
-                  onClick={() => deleteGroup(groupName)}
-                  className="btn-ghost p-1 text-red-300 hover:text-red-500"
-                  title="Supprimer le groupe vide"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Quick add row */}
@@ -754,6 +751,84 @@ export default function Guests() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Group edit modal */}
+      {groupEditModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="card w-full max-w-sm p-6 space-y-5">
+            <h2 className="font-serif text-xl">Modifier le groupe</h2>
+
+            {/* Rename */}
+            <div>
+              <label className="label">Nom du groupe</label>
+              <input
+                autoFocus
+                className="input"
+                value={groupEditModal.newName}
+                onChange={(e) => setGroupEditModal({ ...groupEditModal, newName: e.target.value })}
+              />
+            </div>
+
+            {/* Type toggle */}
+            <div>
+              <label className="label">Catégorie</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGroupEditModal({ ...groupEditModal, type: 'famille' })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    groupEditModal.type === 'famille'
+                      ? 'bg-rose-50 border-rose-300 text-rose-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  👨‍👩‍👧 Famille
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupEditModal({ ...groupEditModal, type: 'amis' })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    groupEditModal.type === 'amis'
+                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  👥 Amis
+                </button>
+              </div>
+            </div>
+
+            {/* Confirm all */}
+            <button
+              type="button"
+              onClick={() => confirmAllGroup(groupEditModal.name)}
+              className="w-full py-2 rounded-lg text-sm font-medium bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+            >
+              <Check className="w-4 h-4" />
+              Confirmer toute la présence du groupe
+            </button>
+
+            {/* Save / Cancel */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={saveGroupEdit}
+                disabled={!groupEditModal.newName.trim()}
+                className="btn-primary flex-1"
+              >
+                Enregistrer
+              </button>
+              <button
+                type="button"
+                onClick={() => setGroupEditModal(null)}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
