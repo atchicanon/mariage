@@ -21,8 +21,9 @@ interface Stats {
 
 export default function WeddingOverview() {
   const { weddingId } = useParams<{ weddingId: string }>()
-  const { weddings, setActiveWedding, updateWedding } = useWeddingStore()
+  const { weddings, setActiveWedding, setWeddings, updateWedding } = useWeddingStore()
   const [stats, setStats] = useState<Stats | null>(null)
+  const [loadingWedding, setLoadingWedding] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [editForm, setEditForm] = useState({
     name: '',
@@ -36,10 +37,16 @@ export default function WeddingOverview() {
   const wedding = weddings.find((w) => w.id === weddingId)
 
   useEffect(() => {
-    if (weddingId) {
-      setActiveWedding(weddingId)
-      fetchStats()
+    if (!weddingId) return
+    setActiveWedding(weddingId)
+    if (weddings.length === 0) {
+      setLoadingWedding(true)
+      supabase.from('weddings').select('*').order('date').then(({ data }) => {
+        if (data) setWeddings(data)
+        setLoadingWedding(false)
+      })
     }
+    fetchStats()
   }, [weddingId])
 
   async function fetchStats() {
@@ -101,6 +108,7 @@ export default function WeddingOverview() {
     }
   }
 
+  if (loadingWedding) return null
   if (!wedding) return null
 
   const daysLeft = wedding.date
