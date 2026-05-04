@@ -21,6 +21,10 @@ export default function Layout() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    if (!sessionStorage.getItem('session_started')) {
+      sessionStorage.setItem('session_started', '1')
+      navigate('/', { replace: true })
+    }
     supabase
       .from('weddings')
       .select('*')
