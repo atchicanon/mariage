@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Plus, Trash2, Pencil, X, Users } from 'lucide-react'
+import { Plus, Trash2, Pencil, X, Users, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Guest } from '../types/database'
 
@@ -189,6 +189,7 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
     capacity: 10,
   })
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [searchGuest, setSearchGuest] = useState('')
 
   useEffect(() => {
     try {
@@ -223,6 +224,14 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
 
   const selectedTable = tables.find((t) => t.id === selectedTableId) ?? null
   const selectedGuests = selectedTableId !== null ? (guestsByTable[selectedTableId] ?? []) : []
+
+  const filteredUnassigned = useMemo(() => {
+    const q = searchGuest.toLowerCase().trim()
+    if (!q) return unassigned
+    return unassigned.filter((g) =>
+      `${g.first_name} ${g.last_name}`.toLowerCase().includes(q),
+    )
+  }, [unassigned, searchGuest])
 
   const totalSeats = tables.reduce((s, t) => s + t.capacity, 0)
   const totalAssigned = guests.filter((g) => g.table_number !== null).length
@@ -329,7 +338,7 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
                 return (
                   <div
                     key={table.id}
-                    onClick={() => setSelectedTableId(selected ? null : table.id)}
+                    onClick={() => { setSelectedTableId(selected ? null : table.id); setSearchGuest('') }}
                     className={`card p-4 cursor-pointer transition-all select-none ${
                       selected
                         ? 'border-rose-400 shadow-md ring-1 ring-rose-200'
@@ -429,22 +438,44 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
                   </p>
                 ) : (
                   <>
-                    <p className="text-xs text-gray-400 mb-2">Cliquer pour placer à cette table :</p>
-                    <div className="space-y-0.5 max-h-60 overflow-y-auto">
-                      {unassigned.map((g) => (
+                    {/* Recherche */}
+                    <div className="relative mb-2">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                      <input
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-rose-400 transition-colors"
+                        placeholder="Rechercher un invité…"
+                        value={searchGuest}
+                        onChange={(e) => setSearchGuest(e.target.value)}
+                      />
+                      {searchGuest && (
                         <button
-                          key={g.id}
-                          onClick={() => assignGuest(g.id, selectedTable.id)}
-                          className="w-full text-left flex items-center justify-between px-3 py-2 rounded-lg text-sm hover:bg-rose-100 transition-colors group"
+                          onClick={() => setSearchGuest('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                         >
-                          <span className="text-gray-700 text-xs">
-                            {g.first_name} {g.last_name}
-                          </span>
-                          <span className="text-xs text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                            Placer →
-                          </span>
+                          <X className="w-3 h-3" />
                         </button>
-                      ))}
+                      )}
+                    </div>
+
+                    <div className="space-y-0.5 max-h-56 overflow-y-auto">
+                      {filteredUnassigned.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-3 italic">Aucun résultat</p>
+                      ) : (
+                        filteredUnassigned.map((g) => (
+                          <button
+                            key={g.id}
+                            onClick={() => assignGuest(g.id, selectedTable.id)}
+                            className="w-full text-left flex items-center justify-between px-3 py-2 rounded-lg text-sm hover:bg-rose-100 transition-colors group"
+                          >
+                            <span className="text-gray-700 text-xs">
+                              {g.first_name} {g.last_name}
+                            </span>
+                            <span className="text-xs text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              Placer →
+                            </span>
+                          </button>
+                        ))
+                      )}
                     </div>
                   </>
                 )}
