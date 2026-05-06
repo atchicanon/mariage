@@ -6,7 +6,8 @@ import {
   ArrowUp, ArrowDown, Plus, ArrowRight, LayoutGrid,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import type { Guest, RsvpStatus } from '../types/database'
+import type { Guest, RsvpStatus, WeddingGuestWithPerson } from '../types/database'
+import { flattenGuest } from '../types/database'
 import TablePlan from './TablePlan'
 
 type GroupType = 'famille' | 'amis'
@@ -17,7 +18,6 @@ const RSVP_LABELS: Record<RsvpStatus, string> = {
   confirmed: 'Confirmé',
   declined: 'Décliné',
 }
-
 
 const RSVP_ICON = {
   pending:   { Icon: Clock, cls: 'text-amber-400 hover:text-amber-600' },
@@ -40,6 +40,8 @@ const EMPTY_FORM = {
   group_name: '',
   notes: '',
 }
+
+const SELECT_WITH_PERSON = '*, person:people(*)' as const
 
 export default function Guests() {
   const { weddingId } = useParams<{ weddingId: string }>()
@@ -85,8 +87,13 @@ export default function Guests() {
     if (!weddingId) return
     setLoading(true)
     const { data } = await supabase
-      .from('guests').select('*').eq('wedding_id', weddingId).order('last_name')
-    const list = data ?? []
+      .from('wedding_guests')
+      .select(SELECT_WITH_PERSON)
+      .eq('wedding_id', weddingId)
+    const list: Guest[] = ((data ?? []) as WeddingGuestWithPerson[])
+      .map(flattenGuest)
+      .sort((a, b) => a.last_name.localeCompare(b.last_name, 'fr'))
+
     setGuests(list)
 
     // Auto-register unknown groups in meta
@@ -107,60 +114,102 @@ export default function Guests() {
     e.preventDefault()
     if (!weddingId) return
     const children = form.children.map((c) => c.trim()).filter(Boolean)
-    const payload = {
-      wedding_id: weddingId,
+
+    const personPayload = {
       first_name: form.first_name,
       last_name: form.last_name,
       email: form.email || null,
       phone: form.phone || null,
+      group_name: form.group_name || null,
+      children,
+      notes: form.notes || null,
+    }
+    const wgPayload = {
       rsvp_status: form.rsvp_status,
       table_number: form.table_number ? parseInt(form.table_number) : null,
       menu_choice: form.menu_choice || 'Pas de restriction',
-      children,
       plus_one: children.length > 0,
       plus_one_name: children[0] ?? null,
-      group_name: form.group_name || null,
-      notes: form.notes || null,
     }
+
     if (editGuest) {
-      const { data } = await supabase.from('guests').update(payload).eq('id', editGuest.id).select().single()
-      if (data) setGuests(guests.map((g) => (g.id === data.id ? data : g)))
+      // Update person data
+      await supabase.from('people').update(personPayload).eq('id', editGuest.person_id)
+      // Update wedding-specific data
+      const { data } = await supabase
+        .from('wedding_guests')
+        .update(wgPayload)
+        .eq('id', editGuest.id)
+        .select(SELECT_WITH_PERSON)
+        .single()
+      if (data) {
+        const updated = flattenGuest(data as WeddingGuestWithPerson)
+        setGuests(guests.map((g) => (g.id === updated.id ? updated : g)))
+      }
     } else {
-      const { data } = await supabase.from('guests').insert(payload).select().single()
-      if (data) setGuests([...guests, data])
+      // Create person
+      const { data: person } = await supabase
+        .from('people')
+        .insert(personPayload)
+        .select()
+        .single()
+      if (!person) return
+      // Create wedding_guest
+      const { data: wg } = await supabase
+        .from('wedding_guests')
+        .insert({ wedding_id: weddingId, person_id: person.id, ...wgPayload })
+        .select(SELECT_WITH_PERSON)
+        .single()
+      if (wg) setGuests([...guests, flattenGuest(wg as WeddingGuestWithPerson)])
     }
     closeForm()
   }
 
   async function deleteGuest(id: string) {
-    await supabase.from('guests').delete().eq('id', id)
+    await supabase.from('wedding_guests').delete().eq('id', id)
     setGuests(guests.filter((g) => g.id !== id))
   }
 
   async function updateRsvp(id: string, status: RsvpStatus) {
-    const { data } = await supabase.from('guests').update({ rsvp_status: status }).eq('id', id).select().single()
-    if (data) setGuests(guests.map((g) => (g.id === data.id ? data : g)))
+    const { data } = await supabase
+      .from('wedding_guests')
+      .update({ rsvp_status: status })
+      .eq('id', id)
+      .select(SELECT_WITH_PERSON)
+      .single()
+    if (data) {
+      const updated = flattenGuest(data as WeddingGuestWithPerson)
+      setGuests(guests.map((g) => (g.id === updated.id ? updated : g)))
+    }
   }
 
   async function resetMenuChoices() {
     if (!weddingId) return
-    await supabase.from('guests').update({ menu_choice: 'Pas de restriction' }).eq('wedding_id', weddingId)
+    await supabase
+      .from('wedding_guests')
+      .update({ menu_choice: 'Pas de restriction' })
+      .eq('wedding_id', weddingId)
     setGuests(guests.map((g) => ({ ...g, menu_choice: 'Pas de restriction' })))
   }
 
   // ---------- Group management ----------
   async function saveGroupEdit() {
-    if (!groupEditModal || !weddingId) return
+    if (!groupEditModal) return
     const { name, newName, type } = groupEditModal
     const trimmed = newName.trim()
     if (!trimmed) return
+
     if (trimmed !== name) {
-      await supabase.from('guests')
-        .update({ group_name: trimmed })
-        .eq('wedding_id', weddingId)
-        .eq('group_name', name)
-      setGuests(guests.map((g) => g.group_name === name ? { ...g, group_name: trimmed } : g))
+      // Update group_name on all people in this wedding's guest list that belong to this group
+      const personIds = guests
+        .filter((g) => g.group_name === name)
+        .map((g) => g.person_id)
+      if (personIds.length > 0) {
+        await supabase.from('people').update({ group_name: trimmed }).in('id', personIds)
+        setGuests(guests.map((g) => g.group_name === name ? { ...g, group_name: trimmed } : g))
+      }
     }
+
     const next = { ...groupsMeta }
     const existing = next[name]
     if (trimmed !== name) {
@@ -174,12 +223,13 @@ export default function Guests() {
   }
 
   async function confirmAllGroup(groupName: string) {
-    if (!weddingId) return
-    await supabase.from('guests')
-      .update({ rsvp_status: 'confirmed' })
-      .eq('wedding_id', weddingId)
-      .eq('group_name', groupName)
-    setGuests(guests.map((g) => g.group_name === groupName ? { ...g, rsvp_status: 'confirmed' } : g))
+    const wgIds = guests
+      .filter((g) => g.group_name === groupName)
+      .map((g) => g.id)
+    if (wgIds.length > 0) {
+      await supabase.from('wedding_guests').update({ rsvp_status: 'confirmed' }).in('id', wgIds)
+      setGuests(guests.map((g) => g.group_name === groupName ? { ...g, rsvp_status: 'confirmed' } : g))
+    }
     setGroupEditModal(null)
   }
 
@@ -212,27 +262,41 @@ export default function Guests() {
 
   // ---------- Guest moves ----------
   async function moveGuest(guestId: string, newGroup: string) {
+    const guest = guests.find((g) => g.id === guestId)
+    if (!guest) return
     const group_name = newGroup || null
-    const { data } = await supabase.from('guests')
-      .update({ group_name }).eq('id', guestId).select().single()
-    if (data) setGuests(guests.map((g) => (g.id === data.id ? data : g)))
+    await supabase.from('people').update({ group_name }).eq('id', guest.person_id)
+    setGuests(guests.map((g) => (g.id === guestId ? { ...g, group_name } : g)))
     setMovingGuest(null)
   }
 
   async function quickAdd(groupName: string) {
     if (!weddingId || !quickAddForm.first_name.trim() || !quickAddForm.last_name.trim()) return
-    const { data } = await supabase.from('guests').insert({
-      wedding_id: weddingId,
-      first_name: quickAddForm.first_name.trim(),
-      last_name: quickAddForm.last_name.trim(),
-      group_name: groupName,
-      rsvp_status: 'pending',
-      menu_choice: 'Pas de restriction',
-      children: [],
-      plus_one: false,
-      email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
-    }).select().single()
-    if (data) setGuests([...guests, data])
+    const { data: person } = await supabase
+      .from('people')
+      .insert({
+        first_name: quickAddForm.first_name.trim(),
+        last_name: quickAddForm.last_name.trim(),
+        group_name: groupName,
+        children: [],
+        email: null, phone: null, notes: null,
+      })
+      .select()
+      .single()
+    if (!person) return
+    const { data: wg } = await supabase
+      .from('wedding_guests')
+      .insert({
+        wedding_id: weddingId,
+        person_id: person.id,
+        rsvp_status: 'pending',
+        menu_choice: 'Pas de restriction',
+        plus_one: false,
+        table_number: null, plus_one_name: null,
+      })
+      .select(SELECT_WITH_PERSON)
+      .single()
+    if (wg) setGuests([...guests, flattenGuest(wg as WeddingGuestWithPerson)])
     setQuickAddGroup(null)
     setQuickAddForm({ first_name: '', last_name: '' })
   }
@@ -242,29 +306,47 @@ export default function Guests() {
     e.preventDefault()
     setImportError('')
     if (!weddingId) return
-    const toInsert: object[] = []
+
+    type ImportRow = {
+      person: {
+        first_name: string; last_name: string; phone: string | null
+        email: null; group_name: string | null; children: string[]; notes: null
+      }
+      wg: {
+        rsvp_status: string; table_number: number | null
+        menu_choice: string; plus_one: boolean; plus_one_name: string | null
+      }
+    }
+
+    const rows: ImportRow[] = []
     const errors: string[] = []
 
     if (importCsvRows) {
-      // CSV export format: Groupe;Nom;Prénom;Téléphone;RSVP;Table;Restrictions;Plus one
-      const RSVP_REVERSE: Record<string, string> = { 'Confirmé': 'confirmed', 'Décliné': 'declined', 'En attente': 'pending' }
+      const RSVP_REVERSE: Record<string, string> = {
+        'Confirmé': 'confirmed', 'Décliné': 'declined', 'En attente': 'pending',
+      }
       for (const cols of importCsvRows) {
         const last_name = cols[1]?.trim()
         const first_name = cols[2]?.trim()
         if (!last_name || !first_name) continue
-        toInsert.push({
-          wedding_id: weddingId,
-          group_name: cols[0]?.trim() || null,
-          last_name,
-          first_name,
-          phone: cols[3]?.trim() || null,
-          rsvp_status: RSVP_REVERSE[cols[4]?.trim()] ?? 'pending',
-          table_number: cols[5]?.trim() ? parseInt(cols[5]) : null,
-          menu_choice: cols[6]?.trim() || 'Pas de restriction',
-          children: cols[7]?.trim() ? cols[7].trim().split('|').map((s) => s.trim()).filter(Boolean) : [],
-          plus_one: !!cols[7]?.trim() && cols[7].trim() !== 'Non',
-          plus_one_name: cols[7]?.trim().split('|')[0]?.trim() || null,
-          email: null, notes: null,
+        const childrenRaw = cols[7]?.trim()
+        const children = childrenRaw ? childrenRaw.split('|').map((s) => s.trim()).filter(Boolean) : []
+        rows.push({
+          person: {
+            first_name, last_name,
+            phone: cols[3]?.trim() || null,
+            email: null,
+            group_name: cols[0]?.trim() || null,
+            children,
+            notes: null,
+          },
+          wg: {
+            rsvp_status: RSVP_REVERSE[cols[4]?.trim()] ?? 'pending',
+            table_number: cols[5]?.trim() ? parseInt(cols[5]) : null,
+            menu_choice: cols[6]?.trim() || 'Pas de restriction',
+            plus_one: children.length > 0,
+            plus_one_name: children[0] ?? null,
+          },
         })
       }
     } else {
@@ -272,25 +354,45 @@ export default function Guests() {
         for (const person of line.split(',').map((p) => p.trim()).filter(Boolean)) {
           const parts = person.split(/\s+/)
           if (parts.length < 2) { errors.push(`Format invalide : "${person}"`); continue }
-          toInsert.push({
-            wedding_id: weddingId,
-            first_name: parts[0],
-            last_name: parts.slice(1).join(' '),
-            rsvp_status: 'pending',
-            menu_choice: 'Pas de restriction',
-            group_name: importGroup || null,
-            children: [],
-            plus_one: false,
-            email: null, phone: null, table_number: null, plus_one_name: null, notes: null,
+          rows.push({
+            person: {
+              first_name: parts[0],
+              last_name: parts.slice(1).join(' '),
+              phone: null, email: null,
+              group_name: importGroup || null,
+              children: [], notes: null,
+            },
+            wg: {
+              rsvp_status: 'pending',
+              table_number: null,
+              menu_choice: 'Pas de restriction',
+              plus_one: false,
+              plus_one_name: null,
+            },
           })
         }
       }
     }
 
-    if (errors.length && !toInsert.length) { setImportError(errors.join('\n')); return }
-    const { data } = await supabase.from('guests').insert(toInsert).select()
-    if (data) {
-      setGuests([...guests, ...data])
+    if (errors.length && !rows.length) { setImportError(errors.join('\n')); return }
+
+    const { data: newPeople } = await supabase
+      .from('people')
+      .insert(rows.map((r) => r.person))
+      .select()
+    if (!newPeople) return
+
+    const { data: newWgs } = await supabase
+      .from('wedding_guests')
+      .insert(newPeople.map((p, i) => ({
+        wedding_id: weddingId,
+        person_id: p.id,
+        ...rows[i].wg,
+      })))
+      .select(SELECT_WITH_PERSON)
+
+    if (newWgs) {
+      setGuests([...guests, ...(newWgs as WeddingGuestWithPerson[]).map(flattenGuest)])
       setShowImport(false)
       setImportText(''); setImportGroup(''); setImportError(''); setImportCsvRows(null)
     }
@@ -332,7 +434,7 @@ export default function Guests() {
       g.menu_choice ?? 'Pas de restriction',
       (g.children ?? []).join('|'),
     ])
-    const csv = '\uFEFF' + [headers, ...rows].map((r) => r.join(';')).join('\n')
+    const csv = '﻿' + [headers, ...rows].map((r) => r.join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     a.download = 'invites.csv'; a.click()
@@ -343,10 +445,9 @@ export default function Guests() {
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const text = (ev.target?.result as string ?? '').replace(/^\uFEFF/, '')
+      const text = (ev.target?.result as string ?? '').replace(/^﻿/, '')
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
       if (!lines.length) return
-      // Detect export format: header starts with "Groupe;Nom;Prénom"
       const isExportFormat = lines[0].startsWith('Groupe;Nom;') || lines[0].startsWith('Groupe;')
       if (isExportFormat) {
         setImportCsvRows(lines.slice(1).map((l) => l.split(';')))
@@ -385,7 +486,6 @@ export default function Guests() {
 
   const guestsInGroup = (name: string) => filtered.filter((g) => g.group_name === name)
   const realGuestsInGroup = (name: string) => guests.filter((g) => g.group_name === name)
-  // All known groups (includes empty ones from meta) for move-to dropdowns
   const allGroups = sortedByPosition
 
   const counts = {
@@ -446,7 +546,6 @@ export default function Guests() {
 
           {/* Actions */}
           <div className="flex items-center gap-0.5 ml-1 shrink-0">
-            {/* Edit group modal */}
             <button
               onClick={() => setGroupEditModal({ name: groupName, newName: groupName, type: groupsMeta[groupName]?.type ?? 'famille' })}
               className="btn-ghost p-1 text-gray-400 hover:text-gray-600"
@@ -454,7 +553,6 @@ export default function Guests() {
             >
               <Pencil className="w-3 h-3" />
             </button>
-            {/* Quick add */}
             <button
               onClick={() => setQuickAddGroup(quickAddGroup === groupName ? null : groupName)}
               className="btn-ghost p-1 text-gray-400 hover:text-rose-500"
@@ -462,7 +560,6 @@ export default function Guests() {
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
-            {/* Delete (only when truly empty) */}
             {realCount === 0 && (
               <button
                 onClick={() => deleteGroup(groupName)}
@@ -510,7 +607,6 @@ export default function Guests() {
                 const { Icon: RsvpIcon, cls: rsvpCls } = RSVP_ICON[guest.rsvp_status]
                 return (
                   <tr key={guest.id} className="hover:bg-gray-50/50">
-                    {/* Name — takes all remaining width */}
                     <td className="px-3 py-2 w-full min-w-0">
                       <button className="text-left w-full min-w-0" onClick={() => openEdit(guest)}>
                         <p className="font-medium text-gray-800 hover:text-rose-600 text-xs truncate">
@@ -523,15 +619,12 @@ export default function Guests() {
                         )}
                       </button>
                     </td>
-                    {/* Phone — desktop only */}
                     <td className="py-2 text-xs text-gray-400 hidden lg:table-cell w-28 truncate">
                       {guest.phone ?? '—'}
                     </td>
-                    {/* Restrictions — desktop only */}
                     <td className="py-2 text-xs text-gray-400 hidden md:table-cell w-32 truncate">
                       {guest.menu_choice ?? 'Pas de restriction'}
                     </td>
-                    {/* RSVP icon — cycles on click */}
                     <td className="py-2 w-8 text-center">
                       <button
                         onClick={() => updateRsvp(guest.id, RSVP_CYCLE[guest.rsvp_status])}
@@ -541,7 +634,6 @@ export default function Guests() {
                         <RsvpIcon className="w-3.5 h-3.5" />
                       </button>
                     </td>
-                    {/* Move to group */}
                     <td className="py-2 w-8 text-center">
                       {movingGuest === guest.id ? (
                         <select
@@ -566,7 +658,6 @@ export default function Guests() {
                         </button>
                       )}
                     </td>
-                    {/* Delete */}
                     <td className="py-2 pr-2 w-8 text-center">
                       <button
                         onClick={() => deleteGuest(guest.id)}
@@ -802,7 +893,6 @@ export default function Guests() {
           <div className="card w-full max-w-sm p-6 space-y-5">
             <h2 className="font-serif text-xl">Modifier le groupe</h2>
 
-            {/* Rename */}
             <div>
               <label className="label">Nom du groupe</label>
               <input
@@ -812,7 +902,6 @@ export default function Guests() {
               />
             </div>
 
-            {/* Type toggle */}
             <div>
               <label className="label">Catégorie</label>
               <div className="flex gap-2">
@@ -841,7 +930,6 @@ export default function Guests() {
               </div>
             </div>
 
-            {/* Confirm all */}
             <button
               type="button"
               onClick={() => confirmAllGroup(groupEditModal.name)}
@@ -851,7 +939,6 @@ export default function Guests() {
               Confirmer toute la présence du groupe
             </button>
 
-            {/* Save / Cancel */}
             <div className="flex gap-3">
               <button
                 type="button"
@@ -1025,7 +1112,6 @@ export default function Guests() {
               Importe un CSV exporté depuis l'appli, ou colle une liste texte.
             </p>
             <form onSubmit={importGuests} className="space-y-4">
-              {/* File upload */}
               <div>
                 <label className="label">Fichier CSV (UTF-8)</label>
                 <label className="flex items-center gap-2 cursor-pointer border border-dashed border-gray-300 rounded-lg px-4 py-3 hover:border-rose-300 hover:bg-rose-50/50 transition-colors">

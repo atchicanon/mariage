@@ -4,10 +4,12 @@
 // The CSV has columns:
 //   N° ; Nom / Prénom ; Téléphone ; Bordeaux invité ; Bordeaux présence ; La Réunion invité ; La Réunion présence
 //
-// - group_name is derived from the family name (uppercase part)
-// - plus_one is set when "+N" appears in the name
-// - rsvp_status = "confirmed" if presence col is X, else "pending"
-// - People invited to both weddings get one record per wedding
+// Architecture cible :
+//   people        – données de la personne (partagées, dédupliquées)
+//   wedding_guests – participation par mariage (RSVP, table, menu…)
+//
+// Les personnes invitées aux deux mariages ne donnent qu'une seule ligne
+// dans people (données Bordeaux en priorité).
 
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
@@ -31,18 +33,12 @@ function loadEnv() {
 }
 
 // ---------- Name parser ----------
-// Input:  "BILLAUD Jean-Yves"  →  { last_name: "BILLAUD", first_name: "Jean-Yves", plus_one: false }
-// Input:  "BEN MCHAREK Yousra +1" → { last_name: "BEN MCHAREK", first_name: "Yousra", plus_one: true }
-// Input:  "Shaynae"           → { last_name: "Shaynae", first_name: "", plus_one: false }
 function parseName(raw) {
-  // Strip trailing +N
   const plusMatch = raw.match(/\s*\+\d+\s*$/)
   const plus_one = !!plusMatch
   const cleaned = raw.replace(/\s*\+\d+\s*$/, '').trim()
-
   const words = cleaned.split(/\s+/)
 
-  // Last name = leading words that are fully uppercase (letters + hyphens only, length > 1)
   const lastNameWords = []
   let i = 0
   while (i < words.length) {
@@ -57,7 +53,6 @@ function parseName(raw) {
 
   const last_name = lastNameWords.length ? lastNameWords.join(' ') : words[0] ?? '?'
   const first_name = words.slice(lastNameWords.length || 1).join(' ')
-
   return { last_name, first_name: first_name || '', plus_one }
 }
 
@@ -71,7 +66,6 @@ function parseRow(line) {
 
   const phone = cols[2]?.trim().replace(/\s+/g, '') || null
 
-  // Some rows (Réunion-only) have an extra empty column, shifting REU cols right by 1
   const reuOffset = cols.length >= 8 ? 1 : 0
   const bdxInvite   = cols[3]?.trim().toUpperCase() === 'X'
   const bdxPresence = cols[4]?.trim().toUpperCase() === 'X'
@@ -82,17 +76,7 @@ function parseRow(line) {
 
   const { last_name, first_name, plus_one } = parseName(nameRaw)
 
-  return {
-    last_name,
-    first_name,
-    phone,
-    plus_one,
-    group_name: last_name,
-    bdxInvite,
-    bdxPresence,
-    reuInvite,
-    reuPresence,
-  }
+  return { last_name, first_name, phone, plus_one, bdxInvite, bdxPresence, reuInvite, reuPresence }
 }
 
 // ---------- Main ----------
@@ -115,7 +99,6 @@ async function main() {
   console.log('Weddings found:')
   weddings.forEach((w) => console.log(`  [${w.type}] ${w.name}  →  ${w.id}`))
 
-  // Match by name keywords (case-insensitive)
   const civil    = weddings.find((w) => /bordeaux|civil/i.test(w.name))
   const religious = weddings.find((w) => /réunion|reunion|religieux/i.test(w.name))
   if (!civil) {
@@ -129,63 +112,69 @@ async function main() {
 
   // Parse CSV
   const csvPath = join(__dirname, '..', 'data', 'guests.csv')
-  const lines = readFileSync(csvPath, 'utf8').trim().split('\n').slice(1) // skip header
+  const lines = readFileSync(csvPath, 'utf8').trim().split('\n').slice(1)
 
-  const civilGuests    = []
-  const religiousGuests = []
+  // Map: key = "LAST_NAME|first_name" → person data + which weddings
+  const peopleMap = new Map()
   const warnings = []
 
   for (const line of lines) {
     const row = parseRow(line)
     if (!row) continue
+    if (!row.first_name) warnings.push(`⚠  No first name parsed for: "${line.split(';')[1]}"`)
 
-    if (!row.first_name) {
-      warnings.push(`⚠  No first name parsed for: "${line.split(';')[1]}"`)
+    const key = `${row.last_name.toLowerCase()}|${row.first_name.toLowerCase()}`
+
+    if (!peopleMap.has(key)) {
+      peopleMap.set(key, {
+        // Person data – Bordeaux is processed first so its phone takes priority when present
+        last_name: row.last_name,
+        first_name: row.first_name || '?',
+        phone: row.phone,
+        group_name: row.last_name,
+        children: [],
+        email: null,
+        notes: null,
+        // Per-wedding participation
+        weddings: [],
+      })
+    } else if (row.phone && !peopleMap.get(key).phone) {
+      // Bordeaux phone fills in if missing
+      peopleMap.get(key).phone = row.phone
     }
 
-    const base = {
-      first_name: row.first_name || '?',
-      last_name: row.last_name,
-      phone: row.phone,
-      email: null,
-      plus_one: row.plus_one,
-      plus_one_name: null,
-      group_name: row.group_name,
-      table_number: null,
-      menu_choice: null,
-      notes: null,
-    }
-
+    const person = peopleMap.get(key)
     if (row.bdxInvite) {
-      civilGuests.push({
-        ...base,
+      person.weddings.push({
         wedding_id: civil.id,
         rsvp_status: row.bdxPresence ? 'confirmed' : 'pending',
+        plus_one: row.plus_one,
       })
     }
-
     if (row.reuInvite) {
-      religiousGuests.push({
-        ...base,
+      person.weddings.push({
         wedding_id: religious.id,
         rsvp_status: row.reuPresence ? 'confirmed' : 'pending',
+        plus_one: row.plus_one,
       })
     }
   }
 
-  // Summary
+  const uniquePeople = [...peopleMap.values()]
+  const totalWeddingGuests = uniquePeople.reduce((s, p) => s + p.weddings.length, 0)
+
   console.log(`\n── Import summary ──────────────────────────`)
-  console.log(`  Civil (Bordeaux)   : ${civilGuests.length} guests`)
-  console.log(`  Religious (Réunion): ${religiousGuests.length} guests`)
+  console.log(`  Personnes uniques  : ${uniquePeople.length}`)
+  console.log(`  Lignes wedding_guests : ${totalWeddingGuests}`)
   if (warnings.length) {
     console.log(`\nWarnings:`)
     warnings.forEach((w) => console.log(' ', w))
   }
 
-  // Family group breakdown
+  // Group breakdown
   const groups = new Map()
-  for (const g of [...civilGuests, ...religiousGuests]) {
-    groups.set(g.group_name, (groups.get(g.group_name) ?? 0) + 1)
+  for (const p of uniquePeople) {
+    groups.set(p.group_name, (groups.get(p.group_name) ?? 0) + 1)
   }
   console.log(`\nFamily groups detected (${groups.size}):`)
   for (const [name, count] of [...groups.entries()].sort()) {
@@ -197,19 +186,46 @@ async function main() {
     return
   }
 
-  console.log('\nInserting...')
+  console.log('\nInserting people...')
+  const personRecords = uniquePeople.map(({ last_name, first_name, phone, group_name, children, email, notes }) => ({
+    last_name, first_name, phone, group_name, children, email, notes,
+  }))
 
-  if (civilGuests.length) {
-    const { error } = await supabase.from('guests').insert(civilGuests)
-    if (error) console.error('Civil insert error:', error.message)
-    else console.log(`✓ ${civilGuests.length} guests inserted → civil wedding`)
+  const { data: insertedPeople, error: peopleErr } = await supabase
+    .from('people')
+    .insert(personRecords)
+    .select('id')
+  if (peopleErr) {
+    console.error('People insert error:', peopleErr.message)
+    process.exit(1)
+  }
+  console.log(`✓ ${insertedPeople.length} people inserted`)
+
+  // Build wedding_guests rows
+  const wgRows = []
+  for (let i = 0; i < uniquePeople.length; i++) {
+    const person = uniquePeople[i]
+    const personId = insertedPeople[i].id
+    for (const w of person.weddings) {
+      wgRows.push({
+        wedding_id: w.wedding_id,
+        person_id: personId,
+        rsvp_status: w.rsvp_status,
+        plus_one: w.plus_one,
+        plus_one_name: null,
+        table_number: null,
+        menu_choice: null,
+      })
+    }
   }
 
-  if (religiousGuests.length) {
-    const { error } = await supabase.from('guests').insert(religiousGuests)
-    if (error) console.error('Religious insert error:', error.message)
-    else console.log(`✓ ${religiousGuests.length} guests inserted → religious wedding`)
+  console.log('Inserting wedding_guests...')
+  const { error: wgErr } = await supabase.from('wedding_guests').insert(wgRows)
+  if (wgErr) {
+    console.error('wedding_guests insert error:', wgErr.message)
+    process.exit(1)
   }
+  console.log(`✓ ${wgRows.length} wedding_guest rows inserted`)
 
   console.log('\nDone.')
 }

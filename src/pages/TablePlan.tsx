@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Plus, Trash2, Pencil, X, Users, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import type { Guest } from '../types/database'
+import type { Guest, WeddingGuestWithPerson } from '../types/database'
+import { flattenGuest } from '../types/database'
 
 export interface TableConfig {
   id: number
@@ -258,7 +259,7 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
   async function deleteTable(tableId: number) {
     const affected = guests.filter((g) => g.table_number === tableId)
     if (affected.length > 0) {
-      await supabase.from('guests').update({ table_number: null }).eq('wedding_id', weddingId).eq('table_number', tableId)
+      await supabase.from('wedding_guests').update({ table_number: null }).eq('wedding_id', weddingId).eq('table_number', tableId)
       onGuestsChange(guests.map((g) => (g.table_number === tableId ? { ...g, table_number: null } : g)))
     }
     saveTables(tables.filter((t) => t.id !== tableId))
@@ -283,8 +284,16 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
 
   // ── Assignation d'invités (Supabase) ──────────────────────────────────────
   async function assignGuest(guestId: string, tableId: number | null) {
-    const { data } = await supabase.from('guests').update({ table_number: tableId }).eq('id', guestId).select().single()
-    if (data) onGuestsChange(guests.map((g) => (g.id === data.id ? data : g)))
+    const { data } = await supabase
+      .from('wedding_guests')
+      .update({ table_number: tableId })
+      .eq('id', guestId)
+      .select('*, person:people(*)')
+      .single()
+    if (data) {
+      const updated = flattenGuest(data as WeddingGuestWithPerson)
+      onGuestsChange(guests.map((g) => (g.id === updated.id ? updated : g)))
+    }
   }
 
   // ── Rendu ─────────────────────────────────────────────────────────────────

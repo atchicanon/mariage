@@ -12,22 +12,58 @@ export interface Wedding {
   created_at: string
 }
 
-export interface Guest {
+// ─── Personnes (partagées entre mariages) ────────────────────────────────────
+export interface Person {
   id: string
-  wedding_id: string
   first_name: string
   last_name: string
   email: string | null
   phone: string | null
+  group_name: string | null
+  children: string[]
+  notes: string | null
+  created_at: string
+}
+
+// ─── Participation par mariage ────────────────────────────────────────────────
+export interface WeddingGuest {
+  id: string
+  wedding_id: string
+  person_id: string
   rsvp_status: RsvpStatus
   table_number: number | null
   menu_choice: string | null
   plus_one: boolean
   plus_one_name: string | null
-  children: string[]
-  group_name: string | null
-  notes: string | null
   created_at: string
+}
+
+// ─── Vue aplatie utilisée dans l'UI ──────────────────────────────────────────
+// id       = wedding_guests.id  (pour RSVP, suppression…)
+// person_id = people.id          (pour modifier les données de la personne)
+export interface Guest extends WeddingGuest {
+  first_name: string
+  last_name: string
+  email: string | null
+  phone: string | null
+  group_name: string | null
+  children: string[]
+  notes: string | null
+}
+
+export type WeddingGuestWithPerson = WeddingGuest & { person: Person }
+
+export function flattenGuest(wg: WeddingGuestWithPerson): Guest {
+  return {
+    ...wg,
+    first_name: wg.person.first_name,
+    last_name: wg.person.last_name,
+    email: wg.person.email,
+    phone: wg.person.phone,
+    group_name: wg.person.group_name,
+    children: wg.person.children ?? [],
+    notes: wg.person.notes,
+  }
 }
 
 export interface BudgetCategory {
@@ -85,10 +121,15 @@ export interface Database {
         Insert: Omit<Wedding, 'id' | 'created_at'>
         Update: Partial<Omit<Wedding, 'id' | 'created_at'>>
       }
-      guests: {
-        Row: Guest
-        Insert: Omit<Guest, 'id' | 'created_at'>
-        Update: Partial<Omit<Guest, 'id' | 'created_at'>>
+      people: {
+        Row: Person
+        Insert: Omit<Person, 'id' | 'created_at'>
+        Update: Partial<Omit<Person, 'id' | 'created_at'>>
+      }
+      wedding_guests: {
+        Row: WeddingGuest
+        Insert: Omit<WeddingGuest, 'id' | 'created_at'>
+        Update: Partial<Omit<WeddingGuest, 'id' | 'created_at'>>
       }
       budget_categories: {
         Row: BudgetCategory
