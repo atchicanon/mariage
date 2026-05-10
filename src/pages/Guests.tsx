@@ -393,6 +393,8 @@ export default function Guests() {
 
   const counts = {
     total: guests.length,
+    adults: guests.filter((g) => !g.is_child).length,
+    children: guests.filter((g) => g.is_child).length,
     confirmed: guests.filter((g) => g.rsvp_status === 'confirmed').length,
     pending: guests.filter((g) => g.rsvp_status === 'pending').length,
     declined: guests.filter((g) => g.rsvp_status === 'declined').length,
@@ -636,7 +638,7 @@ export default function Guests() {
         <div>
           <h2 className="font-serif text-xl md:text-2xl text-gray-800">Invités</h2>
           <p className="text-xs md:text-sm text-gray-500 mt-0.5">
-            {counts.total} invité(s) · {allGroupNames.length} groupe(s)
+            {counts.adults} adulte(s) · 🧒 {counts.children} enfant(s) · {allGroupNames.length} groupe(s)
           </p>
         </div>
         {activeTab === 'guests' && (
@@ -705,6 +707,9 @@ export default function Guests() {
           >
             <p className="text-xl md:text-2xl font-bold text-gray-800">{s === 'all' ? counts.total : counts[s]}</p>
             <p className="text-[10px] md:text-xs text-gray-500 mt-0.5">{s === 'all' ? 'Total' : RSVP_LABELS[s]}</p>
+            {s === 'all' && counts.children > 0 && (
+              <p className="text-[9px] md:text-[10px] text-gray-400 mt-0.5">{counts.adults} adultes · 🧒 {counts.children} enfants</p>
+            )}
           </button>
         ))}
       </div>
