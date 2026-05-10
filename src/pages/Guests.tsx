@@ -45,7 +45,6 @@ const EMPTY_FORM = {
 
 export default function Guests() {
   const { weddingId } = useParams<{ weddingId: string }>()
-  const localKey = `mariage_groups_${weddingId}`
 
   const [activeTab, setActiveTab] = useState<'guests' | 'tables'>('guests')
   const [guests, setGuests] = useState<Guest[]>([])
@@ -69,16 +68,13 @@ export default function Guests() {
   const [newGroupName, setNewGroupName] = useState('')
   const [importCsvRows, setImportCsvRows] = useState<string[][] | null>(null)
 
-  // ---------- localStorage helpers ----------
-  const loadMeta = useCallback((): Record<string, GroupMeta> => {
-    try { return JSON.parse(localStorage.getItem(localKey) ?? '{}') }
-    catch { return {} }
-  }, [localKey])
-
-  const saveMeta = useCallback((meta: Record<string, GroupMeta>) => {
+  // ---------- Supabase meta helpers ----------
+  const saveMeta = useCallback(async (meta: Record<string, GroupMeta>) => {
     setGroupsMeta(meta)
-    localStorage.setItem(localKey, JSON.stringify(meta))
-  }, [localKey])
+    if (weddingId) {
+      await supabase.from('weddings').update({ groups_meta: meta }).eq('id', weddingId)
+    }
+  }, [weddingId])
 
   // ---------- Fetch ----------
   useEffect(() => { fetchGuests() }, [weddingId])
@@ -86,19 +82,22 @@ export default function Guests() {
   async function fetchGuests() {
     if (!weddingId) return
     setLoading(true)
-    const { data } = await supabase
-      .from('guests').select('*').eq('wedding_id', weddingId).order('last_name')
-    const list = data ?? []
+    const [{ data: guestList }, { data: wedding }] = await Promise.all([
+      supabase.from('guests').select('*').eq('wedding_id', weddingId).order('last_name'),
+      supabase.from('weddings').select('groups_meta').eq('id', weddingId).single(),
+    ])
+    const list = guestList ?? []
     setGuests(list)
 
+    let meta: Record<string, GroupMeta> = (wedding?.groups_meta as Record<string, GroupMeta>) ?? {}
+
     // Auto-register unknown groups in meta
-    const meta = loadMeta()
     const fromGuests = [...new Set(list.map((g) => g.group_name).filter(Boolean))] as string[]
     const missing = fromGuests.filter((n) => !meta[n])
     if (missing.length) {
       const maxPos = Object.values(meta).reduce((m, v) => Math.max(m, v.position), -1) + 1
       missing.forEach((name, i) => { meta[name] = { type: 'famille', position: maxPos + i, side: null } })
-      localStorage.setItem(localKey, JSON.stringify(meta))
+      await supabase.from('weddings').update({ groups_meta: meta }).eq('id', weddingId)
     }
     setGroupsMeta(meta)
     setLoading(false)
