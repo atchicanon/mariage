@@ -177,8 +177,6 @@ function RectangularTableSvg({ seated, capacity }: { seated: Guest[]; capacity: 
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) {
-  const localKey = `mariage_tables_${weddingId}`
-
   const [tables, setTables] = useState<TableConfig[]>([])
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -192,17 +190,13 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
   const [searchGuest, setSearchGuest] = useState('')
 
   useEffect(() => {
-    try {
-      const stored: TableConfig[] = JSON.parse(localStorage.getItem(localKey) ?? '[]')
-      setTables(stored)
-    } catch {
-      setTables([])
-    }
-  }, [localKey])
+    supabase.from('weddings').select('tables_config').eq('id', weddingId).single()
+      .then(({ data }) => setTables((data?.tables_config as TableConfig[]) ?? []))
+  }, [weddingId])
 
-  function saveTables(next: TableConfig[]) {
+  async function saveTables(next: TableConfig[]) {
     setTables(next)
-    localStorage.setItem(localKey, JSON.stringify(next))
+    await supabase.from('weddings').update({ tables_config: next }).eq('id', weddingId)
   }
 
   // ── Données dérivées ──────────────────────────────────────────────────────
@@ -236,7 +230,7 @@ export default function TablePlan({ weddingId, guests, onGuestsChange }: Props) 
   const totalSeats = tables.reduce((s, t) => s + t.capacity, 0)
   const totalAssigned = guests.filter((g) => g.table_number !== null).length
 
-  // ── CRUD tables (localStorage) ────────────────────────────────────────────
+  // ── CRUD tables ───────────────────────────────────────────────────────────
   function addTable() {
     const name = tableForm.name.trim()
     if (!name) return
