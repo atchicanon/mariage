@@ -618,7 +618,7 @@ export default function Guests() {
         ) : (
           <div className="space-y-3">
             {groups.map((name) => (
-              <GroupBlock key={name} groupName={name} siblings={groups} />
+              <div key={name}>{GroupBlock({ groupName: name, siblings: groups })}</div>
             ))}
           </div>
         )}
@@ -730,8 +730,8 @@ export default function Guests() {
         </div>
       ) : (
         <div className="space-y-10">
-          <Section title="Famille" emoji="👨‍👩‍👧" groups={familleGroups} type="famille" />
-          <Section title="Amis" emoji="👥" groups={amisGroups} type="amis" />
+          {Section({ title: "Famille", emoji: "👨‍👩‍👧", groups: familleGroups, type: "famille" })}
+          {Section({ title: "Amis", emoji: "👥", groups: amisGroups, type: "amis" })}
 
           {ungrouped.length > 0 && (
             <div>
