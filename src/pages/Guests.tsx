@@ -10,7 +10,8 @@ import type { Guest, RsvpStatus } from '../types/database'
 import TablePlan from './TablePlan'
 
 type GroupType = 'famille' | 'amis'
-interface GroupMeta { type: GroupType; position: number }
+type GroupSide = 'mariee' | 'marie' | null
+interface GroupMeta { type: GroupType; position: number; side?: GroupSide }
 
 const RSVP_LABELS: Record<RsvpStatus, string> = {
   pending: 'En attente',
@@ -60,7 +61,7 @@ export default function Guests() {
   const [importError, setImportError] = useState('')
   const [loading, setLoading] = useState(true)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [groupEditModal, setGroupEditModal] = useState<{ name: string; newName: string; type: GroupType } | null>(null)
+  const [groupEditModal, setGroupEditModal] = useState<{ name: string; newName: string; type: GroupType; side: GroupSide } | null>(null)
   const [movingGuest, setMovingGuest] = useState<string | null>(null)
   const [quickAddGroup, setQuickAddGroup] = useState<string | null>(null)
   const [quickAddForm, setQuickAddForm] = useState({ first_name: '', last_name: '' })
@@ -96,7 +97,7 @@ export default function Guests() {
     const missing = fromGuests.filter((n) => !meta[n])
     if (missing.length) {
       const maxPos = Object.values(meta).reduce((m, v) => Math.max(m, v.position), -1) + 1
-      missing.forEach((name, i) => { meta[name] = { type: 'famille', position: maxPos + i } })
+      missing.forEach((name, i) => { meta[name] = { type: 'famille', position: maxPos + i, side: null } })
       localStorage.setItem(localKey, JSON.stringify(meta))
     }
     setGroupsMeta(meta)
@@ -153,7 +154,7 @@ export default function Guests() {
   // ---------- Group management ----------
   async function saveGroupEdit() {
     if (!groupEditModal || !weddingId) return
-    const { name, newName, type } = groupEditModal
+    const { name, newName, type, side } = groupEditModal
     const trimmed = newName.trim()
     if (!trimmed) return
     if (trimmed !== name) {
@@ -166,10 +167,10 @@ export default function Guests() {
     const next = { ...groupsMeta }
     const existing = next[name]
     if (trimmed !== name) {
-      next[trimmed] = { ...existing, type }
+      next[trimmed] = { ...existing, type, side }
       delete next[name]
     } else {
-      next[name] = { ...existing, type }
+      next[name] = { ...existing, type, side }
     }
     saveMeta(next)
     setGroupEditModal(null)
@@ -201,7 +202,7 @@ export default function Guests() {
     const trimmed = name.trim()
     if (!trimmed) return
     const maxPos = Object.values(groupsMeta).reduce((m, v) => Math.max(m, v.position), -1) + 1
-    saveMeta({ ...groupsMeta, [trimmed]: { type, position: maxPos } })
+    saveMeta({ ...groupsMeta, [trimmed]: { type, position: maxPos, side: null } })
     setNewGroupType(null)
     setNewGroupName('')
   }
@@ -407,11 +408,14 @@ export default function Guests() {
     const isCollapsed = collapsedGroups.has(groupName)
     const idx = siblings.indexOf(groupName)
     const confirmedCnt = list.filter((g) => g.rsvp_status === 'confirmed').length
+    const side = groupsMeta[groupName]?.side ?? null
+    const sideCard = side === 'mariee' ? 'border-l-4 border-l-rose-400' : side === 'marie' ? 'border-l-4 border-l-blue-400' : ''
+    const sideHeader = side === 'mariee' ? 'bg-rose-50 border-b border-rose-100' : side === 'marie' ? 'bg-blue-50 border-b border-blue-100' : 'bg-gray-50 border-b border-gray-100'
 
     return (
-      <div className="card overflow-hidden">
+      <div className={`card overflow-hidden ${sideCard}`}>
         {/* Header */}
-        <div className="flex items-center gap-1 px-3 py-2.5 bg-gray-50 border-b border-gray-100">
+        <div className={`flex items-center gap-1 px-3 py-2.5 ${sideHeader}`}>
           {/* Up/down */}
           <div className="flex flex-col shrink-0 mr-0.5">
             <button
@@ -453,7 +457,7 @@ export default function Guests() {
           <div className="flex items-center gap-0.5 ml-1 shrink-0">
             {/* Edit group modal */}
             <button
-              onClick={() => setGroupEditModal({ name: groupName, newName: groupName, type: groupsMeta[groupName]?.type ?? 'famille' })}
+              onClick={() => setGroupEditModal({ name: groupName, newName: groupName, type: groupsMeta[groupName]?.type ?? 'famille', side: groupsMeta[groupName]?.side ?? null })}
               className="btn-ghost p-1 text-gray-400 hover:text-gray-600"
               title="Modifier le groupe"
             >
@@ -846,6 +850,35 @@ export default function Guests() {
                   }`}
                 >
                   👥 Amis
+                </button>
+              </div>
+            </div>
+
+            {/* Side toggle */}
+            <div>
+              <label className="label">Côté</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGroupEditModal({ ...groupEditModal, side: groupEditModal.side === 'mariee' ? null : 'mariee' })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    groupEditModal.side === 'mariee'
+                      ? 'bg-rose-50 border-rose-400 text-rose-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  💍 Mariée
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupEditModal({ ...groupEditModal, side: groupEditModal.side === 'marie' ? null : 'marie' })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    groupEditModal.side === 'marie'
+                      ? 'bg-blue-50 border-blue-400 text-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  🤵 Marié
                 </button>
               </div>
             </div>
