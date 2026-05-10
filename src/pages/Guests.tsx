@@ -37,6 +37,7 @@ const EMPTY_FORM = {
   table_number: '',
   menu_choice: 'Pas de restriction',
   children: [] as string[],
+  is_child: false,
   group_name: '',
   notes: '',
 }
@@ -119,6 +120,7 @@ export default function Guests() {
       children,
       plus_one: children.length > 0,
       plus_one_name: children[0] ?? null,
+      is_child: form.is_child,
       group_name: form.group_name || null,
       notes: form.notes || null,
     }
@@ -308,6 +310,7 @@ export default function Guests() {
       table_number: guest.table_number?.toString() ?? '',
       menu_choice: guest.menu_choice ?? 'Pas de restriction',
       children: guest.children ?? [],
+      is_child: guest.is_child ?? false,
       group_name: guest.group_name ?? '',
       notes: guest.notes ?? '',
     })
@@ -514,6 +517,7 @@ export default function Guests() {
                     <td className="px-3 py-2 w-full min-w-0">
                       <button className="text-left w-full min-w-0" onClick={() => openEdit(guest)}>
                         <p className="font-medium text-gray-800 hover:text-rose-600 text-xs truncate">
+                          {guest.is_child && <span title="Enfant" className="mr-1">🧒</span>}
                           {guest.first_name} {guest.last_name}
                         </p>
                         {(guest.children ?? []).length > 0 && (
@@ -614,7 +618,7 @@ export default function Guests() {
         ) : (
           <div className="space-y-3">
             {groups.map((name) => (
-              <GroupBlock key={name} groupName={name} siblings={groups} />
+              <div key={name}>{GroupBlock({ groupName: name, siblings: groups })}</div>
             ))}
           </div>
         )}
@@ -726,8 +730,8 @@ export default function Guests() {
         </div>
       ) : (
         <div className="space-y-10">
-          <Section title="Famille" emoji="👨‍👩‍👧" groups={familleGroups} type="famille" />
-          <Section title="Amis" emoji="👥" groups={amisGroups} type="amis" />
+          {Section({ title: "Famille", emoji: "👨‍👩‍👧", groups: familleGroups, type: "famille" })}
+          {Section({ title: "Amis", emoji: "👥", groups: amisGroups, type: "amis" })}
 
           {ungrouped.length > 0 && (
             <div>
@@ -964,9 +968,21 @@ export default function Guests() {
                   onChange={(e) => setForm({ ...form, menu_choice: e.target.value })}
                 />
               </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="is_child_checkbox"
+                  checked={form.is_child}
+                  onChange={(e) => setForm({ ...form, is_child: e.target.checked })}
+                  className="w-4 h-4 accent-rose-500 cursor-pointer"
+                />
+                <label htmlFor="is_child_checkbox" className="text-sm text-gray-700 cursor-pointer select-none">
+                  🧒 Cet invité est un enfant
+                </label>
+              </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="label mb-0">Enfants</label>
+                  <label className="label mb-0">Enfants accompagnateurs</label>
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, children: [...form.children, ''] })}
