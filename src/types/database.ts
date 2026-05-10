@@ -25,6 +25,7 @@ export interface Guest {
   plus_one: boolean
   plus_one_name: string | null
   children: string[]
+  is_child: boolean
   group_name: string | null
   notes: string | null
   created_at: string
